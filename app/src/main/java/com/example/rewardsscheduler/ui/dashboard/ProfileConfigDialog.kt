@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -11,22 +12,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.rewardsscheduler.data.AccountProfile
+import com.example.rewardsscheduler.engine.DelayGenerator
 import com.example.rewardsscheduler.theme.*
 
 /**
  * Homepage Account Settings Dialog:
- * When clicking the gear icon per profile on the homepage,
- * ONLY 3 options are shown:
+ * Allows configuring:
  * 1) Profile's Name / Label
- * 2) Daily Point Cap / Max Points
- * 3) Profile Timeframe (minutes)
- * - Zero delays/prompts (those belong strictly to Profile Level Changes in session mode).
- * - Zero emojis!
+ * 2) Max Points (default 60, formula N = (maxPoints + 1) / 3)
+ * 3) Profile Timeframe override in minutes (empty = use global)
  */
 @Composable
 fun ProfileConfigDialog(
@@ -35,10 +35,13 @@ fun ProfileConfigDialog(
     onSave: (AccountProfile) -> Unit
 ) {
     var label by remember { mutableStateOf(profile.label) }
-    var maxPoints by remember { mutableIntStateOf(profile.maxPoints) }
-    var timeframeMinutes by remember { mutableIntStateOf(profile.timeframeMinutes) }
+    var maxPointsStr by remember { mutableStateOf(profile.maxPoints.toString()) }
+    var timeframeMinutesStr by remember { mutableStateOf(profile.timeframeMinutes?.toString() ?: "") }
 
     val scrollState = rememberScrollState()
+
+    val currentMaxPoints = maxPointsStr.toIntOrNull() ?: profile.maxPoints
+    val requiredSearches = DelayGenerator.calculateRequiredSearches(currentMaxPoints)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -125,49 +128,63 @@ fun ProfileConfigDialog(
                         )
                     }
 
-                    // 2. Daily Point Cap / Max Points
+                    // 2. Max Points
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Daily Point Cap", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("$maxPoints pts (${maxPoints / 3} searches)", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Max Points", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("$requiredSearches required searches", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        Slider(
-                            value = maxPoints.toFloat(),
-                            onValueChange = { maxPoints = (it / 3).toInt() * 3 },
-                            valueRange = 30f..250f,
-                            steps = 72,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Accent,
-                                activeTrackColor = Accent,
-                                inactiveTrackColor = BgSecondary
-                            )
+                        OutlinedTextField(
+                            value = maxPointsStr,
+                            onValueChange = { maxPointsStr = it.filter { ch -> ch.isDigit() } },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            placeholder = { Text("60", color = TextMuted) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Accent,
+                                unfocusedBorderColor = Border,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            ),
+                            shape = RoundedCornerShape(8.dp)
                         )
                     }
 
-                    // 3. Profile Timeframe (minutes)
+                    // 3. Profile Timeframe Override in minutes (empty = use global)
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Profile Timeframe", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("${timeframeMinutes}m", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Timeframe Override (Minutes)", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            val overrideVal = timeframeMinutesStr.toIntOrNull()
+                            Text(
+                                text = if (overrideVal != null && overrideVal > 0) "${overrideVal}m override" else "Using Global",
+                                color = if (overrideVal != null && overrideVal > 0) Accent else TextMuted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
 
-                        Slider(
-                            value = timeframeMinutes.toFloat(),
-                            onValueChange = { timeframeMinutes = it.toInt() },
-                            valueRange = 10f..180f,
-                            steps = 33,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Accent,
-                                activeTrackColor = Accent,
-                                inactiveTrackColor = BgSecondary
-                            )
+                        OutlinedTextField(
+                            value = timeframeMinutesStr,
+                            onValueChange = { timeframeMinutesStr = it.filter { ch -> ch.isDigit() } },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            placeholder = { Text("Empty = Use Global timeframe (30m)", color = TextMuted) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Accent,
+                                unfocusedBorderColor = Border,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            ),
+                            shape = RoundedCornerShape(8.dp)
                         )
                     }
                 }
@@ -190,10 +207,12 @@ fun ProfileConfigDialog(
 
                     Button(
                         onClick = {
+                            val parsedPts = maxPointsStr.toIntOrNull()?.coerceAtLeast(1) ?: profile.maxPoints
+                            val parsedTimeframe = timeframeMinutesStr.toIntOrNull()?.takeIf { it > 0 }
                             val updated = profile.copy(
                                 label = label.ifBlank { profile.label },
-                                maxPoints = maxPoints,
-                                timeframeMinutes = timeframeMinutes
+                                maxPoints = parsedPts,
+                                timeframeMinutes = parsedTimeframe
                             )
                             onSave(updated)
                             onDismiss()

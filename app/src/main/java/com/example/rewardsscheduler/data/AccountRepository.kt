@@ -205,4 +205,21 @@ class AccountRepository(
         _profiles.value = updated
         withContext(Dispatchers.IO) { saveSync(updated) }
     }
+
+    suspend fun updateProfileMaxPoints(id: String, maxPoints: Int) = mutex.withLock {
+        val updated = _profiles.value.map {
+            if (it.id == id) it.copy(maxPoints = maxPoints) else it
+        }
+        _profiles.value = updated
+        withContext(Dispatchers.IO) { saveSync(updated) }
+    }
+
+    suspend fun updateProfileTimeframe(id: String, timeframeMinutes: Int?) = mutex.withLock {
+        val updated = _profiles.value.map {
+            if (it.id == id) it.copy(timeframeMinutes = timeframeMinutes) else it
+        }
+        _profiles.value = updated
+        withContext(Dispatchers.IO) { saveSync(updated) }
+    }
 }
+

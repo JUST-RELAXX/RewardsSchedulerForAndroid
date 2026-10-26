@@ -13,7 +13,7 @@ data class AccountProfile(
     val email: String = "",             // Microsoft email if detected/entered
     val isSignedIn: Boolean = false,
     val maxPoints: Int = 60,            // Per-profile daily point cap
-    val timeframeMinutes: Int = 30,     // Per-profile timeframe
+    val timeframeMinutes: Int? = null,    // Per-profile timeframe override (null = use global)
     val customMinDelay: Int? = null,
     val customMaxDelay: Int? = null,
     val customCategories: List<String> = emptyList(),

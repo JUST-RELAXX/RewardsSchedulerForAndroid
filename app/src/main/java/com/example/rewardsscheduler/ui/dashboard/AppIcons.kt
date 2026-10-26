@@ -556,5 +556,67 @@ object AppIcons {
             }
         }.build()
     }
+
+    val Edit: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Edit",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(11f, 4f)
+                lineTo(4f, 4f)
+                curveTo(2.9f, 4f, 2f, 4.9f, 2f, 6f)
+                lineTo(2f, 20f)
+                curveTo(2f, 21.1f, 2.9f, 22f, 4f, 22f)
+                lineTo(18f, 22f)
+                curveTo(19.1f, 22f, 20f, 21.1f, 20f, 20f)
+                lineTo(20f, 13f)
+                moveTo(18.5f, 2.5f)
+                lineTo(21.5f, 5.5f)
+                lineTo(12f, 15f)
+                lineTo(8f, 16f)
+                lineTo(9f, 12f)
+                close()
+            }
+        }.build()
+    }
+
+    val Home: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Home",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round
+            ) {
+                moveTo(3f, 9f)
+                lineTo(12f, 2f)
+                lineTo(21f, 9f)
+                lineTo(21f, 20f)
+                curveTo(21f, 21.1f, 20.1f, 22f, 19f, 22f)
+                lineTo(5f, 22f)
+                curveTo(3.9f, 22f, 3f, 21.1f, 3f, 20f)
+                close()
+                moveTo(9f, 22f)
+                lineTo(9f, 12f)
+                lineTo(15f, 12f)
+                lineTo(15f, 22f)
+            }
+        }.build()
+    }
 }
 

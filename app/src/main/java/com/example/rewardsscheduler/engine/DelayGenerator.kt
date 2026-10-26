@@ -8,20 +8,21 @@ import kotlin.random.Random
 
 /**
  * Delay & Search-Count Generator.
- * Implements the EXACT mathematical spec from Prompt.md:
- * 1. Every run starts from prompt #1 (index 0).
- * 2. Each search = 3 points. Required searches N = (maxPoints + 1) / 3 (integer division).
- * 3. Timeframe T: generate exactly N delays summing to T seconds within [minDelay, maxDelay]
- *    using the chaos generation algorithm. Feasibility clamped to nearest feasible T with logging.
- * 4. Extra searches E: chosen uniformly at random from 3..7 inclusive, separate tail after T.
- * 5. Prompt queue assembly: combining API prompts and fallback offline queries without repeats.
+ * Implements the EXACT mathematical spec from Task 3:
+ * 3.2: Required searches N = (maxPoints + 1) / 3 (integer division).
+ * 3.3: Timeframe T = (profile override ?: global) * 60 seconds.
+ * 3.4: Generate exactly N delays summing to T within [min, max].
+ * 3.5: Contradiction handling (keep T, widen bounds down to min 3s, clamp T only if impossible).
+ * 3.6: Extras E chosen uniformly in 3..7 inclusive, delays random in [min, max].
  */
 object DelayGenerator {
 
     /**
      * Compute required searches N for a given maxPoints cap.
+     * Non-negative integer division: N = (maxPoints + 1) / 3.
      * Rounding: fraction < 0.5 rounds down, >= 0.5 rounds up.
-     * For non-negative integers: N = (maxPoints + 1) / 3.
+     * Must hold:
+     *   60->20, 30->10, 15->5, 43->14, 44->15, 41->14, 40->13, 42->14, 3->1, 2->1, 1->0.
      */
     fun calculateRequiredSearches(maxPoints: Int): Int {
         if (maxPoints <= 0) return 0
@@ -36,17 +37,16 @@ object DelayGenerator {
     }
 
     /**
-     * Compute default [minDelay, maxDelay] bounds if not manually configured.
-     * Based on PC app:
+     * Compute default [minDelay, maxDelay] bounds based on PC app:
      *   avg = targetSeconds / searches
-     *   min = max(0, floor(avg * 0.3))
-     *   max = min(500, ceil(avg * 1.7))
+     *   min = max(3, floor(avg * 0.3))
+     *   max = max(min + 1, ceil(avg * 1.7))
      */
     fun computeAutoBounds(targetSeconds: Int, searches: Int): Pair<Int, Int> {
-        if (searches <= 0) return 5 to 60
+        if (searches <= 0) return 3 to 60
         val avg = targetSeconds.toDouble() / searches
-        val minVal = max(0, floor(avg * 0.3).toInt())
-        val maxVal = min(500, max(minVal + 1, ceil(avg * 1.7).toInt()))
+        val minVal = max(3, floor(avg * 0.3).toInt())
+        val maxVal = max(minVal + 1, ceil(avg * 1.7).toInt())
         return minVal to maxVal
     }
 
@@ -54,60 +54,68 @@ object DelayGenerator {
      * Generate exactly N delays that sum to [timeframeSeconds],
      * with each delay in [[minDelay], [maxDelay]].
      *
-     * If [timeframeSeconds] is infeasible (N * minDelay > T or N * maxDelay < T),
-     * clamps T to the nearest feasible value and reports via [onAdjustment].
+     * Handles contradictions per 3.5:
+     * Keep user's T, widen bounds until T is reachable (min no lower than 3s, max as high as needed),
+     * and only if impossible clamp T to nearest feasible value.
      */
     fun generateDelays(
         count: Int,
         timeframeSeconds: Int,
-        minDelay: Int,
-        maxDelay: Int,
+        initialMinDelay: Int,
+        initialMaxDelay: Int,
         random: Random = Random.Default,
         onAdjustment: (String) -> Unit = {}
-    ): Pair<List<Int>, Int> {
-        if (count <= 0) return emptyList<Int>() to 0
+    ): Triple<List<Int>, Int, Pair<Int, Int>> {
+        if (count <= 0) return Triple(emptyList(), 0, initialMinDelay to initialMaxDelay)
 
-        val effectiveMin = max(0, minDelay)
-        val effectiveMax = max(effectiveMin, maxDelay)
+        var min = max(3, initialMinDelay)
+        var max = max(min + 1, initialMaxDelay)
+        var T = max(1, timeframeSeconds)
 
-        val minPossible = count * effectiveMin
-        val maxPossible = count * effectiveMax
-
-        var targetSum = timeframeSeconds
-        if (targetSum < minPossible) {
-            onAdjustment("Timeframe ${timeframeSeconds}s is too short for $count searches (min ${minPossible}s). Clamped to ${minPossible}s.")
-            targetSum = minPossible
-        } else if (targetSum > maxPossible) {
-            onAdjustment("Timeframe ${timeframeSeconds}s is too long for $count searches (max ${maxPossible}s). Clamped to ${maxPossible}s.")
-            targetSum = maxPossible
+        // 3.5 Contradiction resolution
+        if (count * min > T) {
+            val possibleMin = T / count
+            if (possibleMin >= 3) {
+                min = possibleMin
+                onAdjustment("Widened min delay bound down to ${min}s to fit ${T}s timeframe.")
+            } else {
+                min = 3
+                val clampedT = count * 3
+                onAdjustment("Timeframe ${T}s is too short for $count searches (minimum 3s/search). Clamped timeframe to ${clampedT}s.")
+                T = clampedT
+            }
+            if (max < min + 1) {
+                max = min + 1
+            }
+        } else if (count * max < T) {
+            val requiredMax = ceil(T.toDouble() / count).toInt()
+            max = max(max, requiredMax)
+            onAdjustment("Widened max delay bound up to ${max}s to accommodate ${T}s timeframe.")
         }
 
-        // Start every delay at minDelay
-        val delays = IntArray(count) { effectiveMin }
-        var remaining = targetSum - (count * effectiveMin)
+        // 3.4 Algorithm
+        val delays = IntArray(count) { min }
+        var remaining = T - count * min
 
-        // Distribute remaining randomly respecting maxDelay
         var iterations = 0
-        val maxIterations = count * 2000
+        val maxIterations = count * 5000
         while (remaining > 0 && iterations < maxIterations) {
             iterations++
-            val idx = random.nextInt(count)
-            val headroom = effectiveMax - delays[idx]
-            if (headroom <= 0) continue
-
-            val maxAdd = min(remaining, headroom)
+            val i = random.nextInt(count)
+            val maxAdd = minOf(remaining, max - delays[i])
+            if (maxAdd <= 0) continue
             val add = random.nextInt(1, maxAdd + 1)
-            delays[idx] += add
+            delays[i] += add
             remaining -= add
         }
 
-        // Deterministic fallback if random distribution had leftover
+        // Deterministic cleanup if any remaining
         if (remaining > 0) {
             for (i in 0 until count) {
                 if (remaining <= 0) break
-                val headroom = effectiveMax - delays[i]
+                val headroom = max - delays[i]
                 if (headroom > 0) {
-                    val add = min(remaining, headroom)
+                    val add = minOf(remaining, headroom)
                     delays[i] += add
                     remaining -= add
                 }
@@ -122,25 +130,25 @@ object DelayGenerator {
             delays[j] = tmp
         }
 
-        // Pairwise jitter: randomly shift small amounts between adjacent pairs
+        // Pairwise smoothing
         for (i in 0 until count - 1 step 2) {
-            if (random.nextBoolean()) {
-                val maxDown = delays[i] - effectiveMin
-                val maxUp = effectiveMax - delays[i + 1]
-                val maxShift = min(maxDown, maxUp)
-                if (maxShift > 0) {
-                    val shift = random.nextInt(0, min(maxShift, 3) + 1)
-                    delays[i] -= shift
-                    delays[i + 1] += shift
+            if (random.nextDouble() > 0.5) {
+                val maxDiff = minOf(delays[i] - min, max - delays[i + 1], 3)
+                if (maxDiff > 0) {
+                    val diff = random.nextInt(0, maxDiff + 1)
+                    if (diff > 0) {
+                        delays[i] -= diff
+                        delays[i + 1] += diff
+                    }
                 }
             }
         }
 
-        return delays.toList() to targetSum
+        return Triple(delays.toList(), T, min to max)
     }
 
     /**
-     * Generate extra search delays drawn from [minDelay, maxDelay].
+     * Generate extra search delays drawn uniformly from [minDelay, maxDelay].
      */
     fun generateExtraDelays(
         extraCount: Int,
@@ -148,7 +156,7 @@ object DelayGenerator {
         maxDelay: Int,
         random: Random = Random.Default
     ): List<Int> {
-        val effectiveMin = max(0, minDelay)
+        val effectiveMin = max(3, minDelay)
         val effectiveMax = max(effectiveMin, maxDelay)
         return List(extraCount) {
             if (effectiveMin == effectiveMax) effectiveMin
@@ -166,7 +174,9 @@ object DelayGenerator {
         val requiredDelays: List<Int>,
         val extraDelays: List<Int>,
         val totalSearches: Int = requiredCount + extraCount,
-        val clampedTimeframeSeconds: Int
+        val clampedTimeframeSeconds: Int,
+        val effectiveMinDelay: Int,
+        val effectiveMaxDelay: Int
     ) {
         val allDelays: List<Int> get() = requiredDelays + extraDelays
     }
@@ -186,14 +196,23 @@ object DelayGenerator {
         val E = generateExtraSearches(random)
         val T = timeframeMinutes * 60
 
-        val (minD, maxD) = if (customMinDelay != null && customMaxDelay != null) {
+        val (initialMin, initialMax) = if (customMinDelay != null && customMaxDelay != null) {
             customMinDelay to customMaxDelay
         } else {
             computeAutoBounds(T, N)
         }
 
-        val (requiredDelays, clampedT) = generateDelays(N, T, minD, maxD, random, onAdjustment)
-        val extraDelays = generateExtraDelays(E, minD, maxD, random)
+        val (requiredDelays, clampedT, resolvedBounds) = generateDelays(
+            count = N,
+            timeframeSeconds = T,
+            initialMinDelay = initialMin,
+            initialMaxDelay = initialMax,
+            random = random,
+            onAdjustment = onAdjustment
+        )
+
+        val (effectiveMin, effectiveMax) = resolvedBounds
+        val extraDelays = generateExtraDelays(E, effectiveMin, effectiveMax, random)
 
         return Plan(
             startIndex = 0,
@@ -201,7 +220,9 @@ object DelayGenerator {
             extraCount = E,
             requiredDelays = requiredDelays,
             extraDelays = extraDelays,
-            clampedTimeframeSeconds = clampedT
+            clampedTimeframeSeconds = clampedT,
+            effectiveMinDelay = effectiveMin,
+            effectiveMaxDelay = effectiveMax
         )
     }
 }

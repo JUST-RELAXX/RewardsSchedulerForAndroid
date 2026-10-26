@@ -2,6 +2,7 @@ package com.example.rewardsscheduler.ui.dashboard
 
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -41,14 +42,16 @@ import com.example.rewardsscheduler.webview.WebViewManager
  * - Header Bar (.webview-header):
  *   - Profile title/email in Cyan #00b0ff
  *   - Action buttons (.webview-header-buttons):
- *     - [Graph] Inline toggle for Advanced Search Analytics panel (opens below WebView, taking 30-35%)
- *     - [Config] Inline toggle for Auto Typer Config panel (opens below WebView, taking 35-40%)
+ *     - [Expand] Inline toggle to expand tile height
+ *     - [Focus] Focus full-screen view with dedicated toolbar
+ *     - [Graph] Inline toggle for Advanced Search Analytics panel
+ *     - [Config] Inline toggle for Auto Typer Config panel
  *     - [X] Red close button
+ * - Navigation Toolbar (Task 4.2): Back, Bing Home, Reload, Forward
  * - Interactive Controllable WebView:
- *   - Direct touch control with disallowInterceptTouchEvent to enable full scrolling, pulling, pinching
- * - Collapsible Inline Graph Panel directly beneath the WebView (.graph-panel-view)
- * - Collapsible Inline Config Panel directly beneath the WebView (.extension-panel)
- * - Zero popups upon clicking Graph or Config in session view!
+ *   - Standard Android WebView mobile behavior — no scrolling simulation, no desktop overrides
+ * - Collapsible Inline Graph Panel directly beneath the WebView
+ * - Collapsible Inline Config Panel directly beneath the WebView
  * - Zero emojis!
  */
 @Composable
@@ -56,17 +59,19 @@ fun SessionTile(
     profile: AccountProfile,
     isCollapsed: Boolean,
     isLocateGlow: Boolean,
+    isFocused: Boolean = false,
     webViewManager: WebViewManager,
     searchEngine: SearchSessionEngine,
     onCloseClick: () -> Unit,
+    onFocusClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val webView = remember { webViewManager.getOrCreateWebView(profile.id) }
-    val isDesktopMode by webViewManager.desktopModeFlow.collectAsState()
 
+    var isFullExpanded by remember { mutableStateOf(false) }
+    var showCloseConfirm by remember { mutableStateOf(false) }
     var isGraphExpanded by remember { mutableStateOf(false) }
     var isConfigExpanded by remember { mutableStateOf(false) }
-    var isFullExpanded by remember { mutableStateOf(false) }
     var customDesireText by remember { mutableStateOf("") }
     var promptRefreshNotice by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
 
@@ -114,19 +119,29 @@ fun SessionTile(
                     )
                 }
 
-                // Right: Action buttons (Expand, Graph, Config, Close)
+                // Right: Action buttons (Expand, Focus, Graph, Config, Close)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Expand/Fit Pill Button (expands WebView height for easy bonus task completion)
+                    // Expand Pill Button (toggles height between 260dp and 460dp)
                     WebviewPillButton(
-                        label = if (isFullExpanded) "Fit" else "Expand",
+                        label = if (isFullExpanded) "Shrink" else "Expand",
                         icon = if (isFullExpanded) AppIcons.Minimize else AppIcons.Maximize,
-                        borderColor = if (isFullExpanded) Color(0xFF69F0AE) else Accent.copy(alpha = 0.4f),
-                        backgroundColor = if (isFullExpanded) Color(0xFF69F0AE).copy(alpha = 0.2f) else Accent.copy(alpha = 0.08f),
-                        contentColor = if (isFullExpanded) Color(0xFF69F0AE) else Accent,
+                        borderColor = if (isFullExpanded) Accent else Accent.copy(alpha = 0.4f),
+                        backgroundColor = if (isFullExpanded) Accent.copy(alpha = 0.25f) else Accent.copy(alpha = 0.08f),
+                        contentColor = Accent,
                         onClick = { isFullExpanded = !isFullExpanded }
+                    )
+
+                    // Focus Pill Button (opens full focused-profile view)
+                    WebviewPillButton(
+                        label = "Focus",
+                        icon = AppIcons.Maximize,
+                        borderColor = Accent.copy(alpha = 0.4f),
+                        backgroundColor = Accent.copy(alpha = 0.08f),
+                        contentColor = Accent,
+                        onClick = onFocusClick
                     )
 
                     // Graph Pill Button (toggles inline Graph panel below webview)
@@ -155,13 +170,13 @@ fun SessionTile(
                         }
                     )
 
-                    // Close Pill Button (Red)
+                    // Close Pill Button (Red) - prompts confirmation
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(0xFFFF4D4D).copy(alpha = 0.1f))
                             .border(1.dp, Color(0xFFFF4D4D).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                            .clickable { onCloseClick() }
+                            .clickable { showCloseConfirm = true }
                             .padding(horizontal = 6.dp, vertical = 3.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -175,7 +190,75 @@ fun SessionTile(
                 }
             }
 
-            // Divider separating header from webview
+            // Close confirmation dialog
+            if (showCloseConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showCloseConfirm = false },
+                    title = {
+                        Text("Close Profile", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    },
+                    text = {
+                        Text("Are you sure you want to close this profile?", color = TextSecondary, fontSize = 13.sp)
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showCloseConfirm = false
+                                onCloseClick()
+                            }
+                        ) {
+                            Text("Close", color = Color(0xFFFF4D4D), fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showCloseConfirm = false }) {
+                            Text("Cancel", color = TextMuted)
+                        }
+                    },
+                    containerColor = BgElevated,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            // Task 4.2 Navigation Toolbar: Back, Bing home, Reload, Forward
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF070B14))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Back (webview history)
+                ToolbarNavButton(
+                    icon = AppIcons.ArrowBack,
+                    label = "Back",
+                    onClick = { webViewManager.goBack(profile.id) }
+                )
+
+                // Bing home
+                ToolbarNavButton(
+                    icon = AppIcons.Home,
+                    label = "Bing",
+                    onClick = { webViewManager.loadUrl(profile.id, "https://www.bing.com") }
+                )
+
+                // Reload
+                ToolbarNavButton(
+                    icon = AppIcons.Refresh,
+                    label = "Reload",
+                    onClick = { webViewManager.reload(profile.id) }
+                )
+
+                // Forward (webview forward history)
+                ToolbarNavButton(
+                    icon = AppIcons.ArrowForward,
+                    label = "Forward",
+                    onClick = { webViewManager.goForward(profile.id) }
+                )
+            }
+
+            // Divider separating toolbar from webview
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -184,17 +267,9 @@ fun SessionTile(
             )
 
             // ═══════════════════════════════════════════════════
-            // 2. Controllable WebView Container (Top ~60-70%)
+            // 2. Controllable WebView Container
             // ═══════════════════════════════════════════════════
-            val webViewHeight = if (isCollapsed) {
-                1.dp
-            } else if (isFullExpanded) {
-                460.dp
-            } else if (isDesktopMode) {
-                310.dp
-            } else {
-                240.dp
-            }
+            val webViewHeight = if (isCollapsed) 1.dp else if (isFullExpanded) 460.dp else 260.dp
 
             Box(
                 modifier = Modifier
@@ -203,31 +278,40 @@ fun SessionTile(
                     .background(Color(0xFF050505))
             ) {
                 AndroidView(
-                    factory = {
-                        webView.parent?.let { parent ->
-                            (parent as? ViewGroup)?.removeView(webView)
+                    factory = { ctx ->
+                        FrameLayout(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
                         }
-                        webView.layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        // Disallow parent Compose scroll interception so web contents scroll smoothly!
-                        webView.setOnTouchListener { view, event ->
-                            when (event.actionMasked) {
-                                MotionEvent.ACTION_DOWN -> {
-                                    view.parent?.requestDisallowInterceptTouchEvent(true)
-                                    view.requestFocus()
+                    },
+                    update = { container ->
+                        if (!isFocused && webView.parent != container) {
+                            (webView.parent as? ViewGroup)?.removeView(webView)
+                            container.removeAllViews()
+                            webView.layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            // Disallow parent Compose scroll interception so web contents scroll smoothly
+                            webView.setOnTouchListener { view, event ->
+                                when (event.actionMasked) {
+                                    MotionEvent.ACTION_DOWN -> {
+                                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                                        view.requestFocus()
+                                    }
+                                    MotionEvent.ACTION_MOVE -> {
+                                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                                    }
+                                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                                    }
                                 }
-                                MotionEvent.ACTION_MOVE -> {
-                                    view.parent?.requestDisallowInterceptTouchEvent(true)
-                                }
-                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                    view.parent?.requestDisallowInterceptTouchEvent(false)
-                                }
+                                false
                             }
-                            false
+                            container.addView(webView)
                         }
-                        webView
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -235,7 +319,6 @@ fun SessionTile(
 
             // ═══════════════════════════════════════════════════
             // 3. Dedicated Inline Graph Panel (.graph-panel-view)
-            // Opens directly BELOW WebView, occupying 30-35% height
             // ═══════════════════════════════════════════════════
             AnimatedVisibility(visible = isGraphExpanded) {
                 Column(
@@ -333,7 +416,7 @@ fun SessionTile(
                                         val x = i * xStep
                                         val y = h - (delayVal / maxVal * h)
 
-                                        if (i == 0) path.moveTo(x, y)
+                                         if (i == 0) path.moveTo(x, y)
                                         else path.lineTo(x, y)
 
                                         drawCircle(color = Accent, radius = 3f, center = Offset(x, y))
@@ -376,7 +459,6 @@ fun SessionTile(
 
             // ═══════════════════════════════════════════════════
             // 4. Dedicated Inline Config Panel (.extension-panel)
-            // Opens directly BELOW WebView, occupying 35-40% height
             // ═══════════════════════════════════════════════════
             AnimatedVisibility(visible = isConfigExpanded) {
                 Column(
@@ -398,7 +480,7 @@ fun SessionTile(
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
 
-                    // Prompt Refresh Notification Box (Matching PC Image 3)
+                    // Prompt Refresh Notification Box
                     promptRefreshNotice?.let { (topics, queryCount) ->
                         Box(
                             modifier = Modifier
@@ -431,7 +513,7 @@ fun SessionTile(
                         }
                     }
 
-                    // Searching vs Offline / Start vs Stop (Matching PC Images 1 & 2)
+                    // Searching vs Offline / Start vs Stop
                     if (isProfileActive) {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
@@ -540,8 +622,8 @@ fun SessionTile(
                             Text(
                                 text = profile.currentQuery.ifEmpty { "Ready..." },
                                 color = Color(0xFF00E5FF),
-                                fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -571,7 +653,7 @@ fun SessionTile(
                         )
                     }
 
-                    // Custom Topic Input Row (+ Add your desire...) matching Image 3
+                    // Custom Topic Input Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -622,7 +704,7 @@ fun SessionTile(
                         }
                     }
 
-                    // Refresh Prompts Button matching PC Image 3
+                    // Refresh Prompts Button
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -653,6 +735,41 @@ fun SessionTile(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ToolbarNavButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color(0xFFB0BEC5),
+                modifier = Modifier.size(12.dp)
+            )
+            Text(
+                text = label,
+                color = Color(0xFFCFD8DC),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }

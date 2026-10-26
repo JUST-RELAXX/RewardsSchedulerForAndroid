@@ -63,10 +63,15 @@ fun AccountCard(
         else -> 0f
     }
 
+    val lightGreen = Color(0xFF00E676)
+    val darkGreen = Color(0xFF1B5E20)
+    val darkGreenBorder = Color(0xFF2E7D32)
+
     // 3dp top accent bar color
     val topBarColor = when {
         isSearching -> Warning
-        isDone -> Success
+        isDone && isSelected -> lightGreen
+        isDone && !isSelected -> darkGreenBorder
         isSelected -> Accent
         else -> Color(0x33FFFFFF)
     }
@@ -74,9 +79,18 @@ fun AccountCard(
     // Card border
     val cardBorderColor = when {
         isSearching -> Warning
-        isDone -> Success
+        isDone && isSelected -> lightGreen
+        isDone && !isSelected -> darkGreenBorder
         isSelected -> Accent
         else -> Border
+    }
+
+    val cardBorderWidth = when {
+        isSearching -> 1.5.dp
+        isDone && isSelected -> 2.dp
+        isDone && !isSelected -> 1.dp
+        isSelected -> 1.5.dp
+        else -> 1.dp
     }
 
     var showContextMenu by remember { mutableStateOf(false) }
@@ -94,7 +108,7 @@ fun AccountCard(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .border(
-                    width = if (isSelected || isSearching || isDone) 1.5.dp else 1.dp,
+                    width = cardBorderWidth,
                     color = cardBorderColor,
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -107,7 +121,12 @@ fun AccountCard(
                 ),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isSelected) BgCardHover else BgCard
+                containerColor = when {
+                    isDone && isSelected -> lightGreen.copy(alpha = 0.08f)
+                    isSelected -> BgCardHover
+                    isDone && !isSelected -> BgCard.copy(alpha = 0.75f)
+                    else -> BgCard
+                }
             )
         ) {
             Column {
@@ -130,24 +149,28 @@ fun AccountCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Square Checkbox (.card-checkbox)
+                        val checkboxBg = when {
+                            isDone && isSelected -> lightGreen
+                            isDone && !isSelected -> darkGreen
+                            isSelected -> Accent
+                            else -> Color.Transparent
+                        }
+
+                        val checkboxBorder = when {
+                            isDone && isSelected -> lightGreen
+                            isDone && !isSelected -> darkGreenBorder
+                            isSelected -> Accent
+                            else -> TextMuted
+                        }
+
                         Box(
                             modifier = Modifier
                                 .size(18.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    when {
-                                        isDone -> Success
-                                        isSelected -> Accent
-                                        else -> Color.Transparent
-                                    }
-                                )
+                                .background(checkboxBg)
                                 .border(
                                     1.5.dp,
-                                    when {
-                                        isDone -> Success
-                                        isSelected -> Accent
-                                        else -> TextMuted
-                                    },
+                                    checkboxBorder,
                                     RoundedCornerShape(4.dp)
                                 ),
                             contentAlignment = Alignment.Center
@@ -156,7 +179,7 @@ fun AccountCard(
                                 Icon(
                                     imageVector = AppIcons.Check,
                                     contentDescription = null,
-                                    tint = Color.White,
+                                    tint = if (isDone && !isSelected) Color(0xFF81C784) else Color.White,
                                     modifier = Modifier.size(13.dp)
                                 )
                             }

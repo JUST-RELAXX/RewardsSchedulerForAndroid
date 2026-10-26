@@ -50,9 +50,7 @@ fun HolisticSettingsCard(
     maxConcurrentProfiles: Int,
     onConcurrentChange: (Int) -> Unit,
     isFlashMode: Boolean,
-    onFlashModeToggle: () -> Unit,
-    isDesktopSite: Boolean = false,
-    onDesktopSiteToggle: (Boolean) -> Unit = {},
+    onFlashModeToggle: (delaySec: Int) -> Unit = {},
     runningFlashProfileIds: Set<String> = emptySet(),
     onStartProfileFlash: (profileId: String, delaySec: Int) -> Unit = { _, _ -> },
     onStopProfileFlash: (profileId: String) -> Unit = {},
@@ -65,6 +63,9 @@ fun HolisticSettingsCard(
         mutableStateOf("none")
     }
     var dropdownExpanded by remember { mutableStateOf(false) }
+
+    // Global flash delay state
+    var globalFlashDelay by remember { mutableFloatStateOf(5f) }
 
     // Profile level settings states matching PC exactly
     var profFlashDelay by remember { mutableFloatStateOf(5f) }
@@ -96,6 +97,99 @@ fun HolisticSettingsCard(
     )
 
     var isExpanded by remember { mutableStateOf(true) }
+    var showResetAllConfirm by remember { mutableStateOf(false) }
+    var showResetProfileConfirm by remember { mutableStateOf(false) }
+
+    if (showResetAllConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetAllConfirm = false },
+            title = {
+                Text("Reset All Settings", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Text(
+                    "Are you sure you want to reset global timeframe and profile level settings for all profiles to default?",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetAllConfirm = false
+                        onTimeframeChange(30)
+                        globalFlashDelay = 5f
+                        selectedProfileId = "none"
+                        profFlashDelay = 5f
+                        profRandomDelayOn = false
+                        profRandomDelayMin = 1f
+                        profRandomDelayMax = 10f
+                        profAutomizeQueryOn = false
+                        profAutomizeMin = 1f
+                        profAutomizeMax = 5f
+                        autoStopDuration = "0"
+                        maxSearches = "0"
+                        typingSpeed = 100f
+                        onResetAll()
+                    }
+                ) {
+                    Text("Reset All", color = Color(0xFFFF4D4D), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetAllConfirm = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
+            },
+            containerColor = BgElevated,
+            shape = RoundedCornerShape(12.dp)
+        )
+    }
+
+    if (showResetProfileConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetProfileConfirm = false },
+            title = {
+                Text("Reset Profile Settings", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Text(
+                    "Are you sure you want to reset profile level settings for currently loaded profile(s) to default?",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetProfileConfirm = false
+                        val currentTarget = selectedProfileId
+                        selectedProfileId = "none"
+                        profFlashDelay = 5f
+                        profRandomDelayOn = false
+                        profRandomDelayMin = 1f
+                        profRandomDelayMax = 10f
+                        profAutomizeQueryOn = false
+                        profAutomizeMin = 1f
+                        profAutomizeMax = 5f
+                        autoStopDuration = "0"
+                        maxSearches = "0"
+                        typingSpeed = 100f
+                        onResetProfile(currentTarget)
+                    }
+                ) {
+                    Text("Reset", color = Color(0xFFFF4D4D), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetProfileConfirm = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
+            },
+            containerColor = BgElevated,
+            shape = RoundedCornerShape(12.dp)
+        )
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -139,19 +233,7 @@ fun HolisticSettingsCard(
                     ResetPillButton(
                         label = "Reset All",
                         onClick = {
-                            onTimeframeChange(30)
-                            selectedProfileId = "none"
-                            profFlashDelay = 5f
-                            profRandomDelayOn = false
-                            profRandomDelayMin = 1f
-                            profRandomDelayMax = 10f
-                            profAutomizeQueryOn = false
-                            profAutomizeMin = 1f
-                            profAutomizeMax = 5f
-                            autoStopDuration = "0"
-                            maxSearches = "0"
-                            typingSpeed = 100f
-                            onResetAll()
+                            showResetAllConfirm = true
                         }
                     )
 
@@ -229,8 +311,58 @@ fun HolisticSettingsCard(
             }
 
             // ═══════════════════════════════════════════════════
-            // 3. Fiery ACTIVATE FLASH Button (.flash-btn)
+            // 3. Global Flash (.flash-btn) + Delay Slider + Finish Timer
             // ═══════════════════════════════════════════════════
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFF0000).copy(alpha = 0.05f), RoundedCornerShape(6.dp))
+                    .border(1.dp, Color(0xFFFF8000).copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = AppIcons.Flash,
+                            contentDescription = null,
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "Flash Mode Delay (seconds):",
+                            color = Color(0xFFFF5252),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "${globalFlashDelay.toInt()}s",
+                        color = Color(0xFFFF5252),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Slider(
+                    value = globalFlashDelay,
+                    onValueChange = { globalFlashDelay = it },
+                    valueRange = 3f..15f,
+                    steps = 11,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFFF0000),
+                        activeTrackColor = Color(0xFFFF0000),
+                        inactiveTrackColor = Color(0xFFFF0000).copy(alpha = 0.2f)
+                    ),
+                    modifier = Modifier.height(24.dp)
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -247,7 +379,7 @@ fun HolisticSettingsCard(
                                 .border(2.dp, Color(0xFFFF0000), RoundedCornerShape(8.dp))
                         }
                     )
-                    .clickable { onFlashModeToggle() },
+                    .clickable { onFlashModeToggle(globalFlashDelay.toInt()) },
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -271,71 +403,54 @@ fun HolisticSettingsCard(
                 }
             }
 
-            // Dashed Divider
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(Color.White.copy(alpha = 0.08f))
-            )
+            // Global Finish in text
+            val globalRemainingSearches = profiles.sumOf { prof ->
+                ((prof.maxPoints / 3) - prof.searchCount).coerceAtLeast(0)
+            }
+            val areAllGlobalDone = profiles.isNotEmpty() && profiles.all { it.searchesDone || it.searchCount >= (it.maxPoints / 3) }
+            val globalTotalSecs = globalRemainingSearches * globalFlashDelay.toInt()
 
-            // ═══════════════════════════════════════════════════
-            // 4. Desktop Site Toggle (.desktop-site-setting)
-            // ═══════════════════════════════════════════════════
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isDesktopSite) AccentGlow else Color.Black.copy(alpha = 0.2f))
-                    .border(
-                        1.dp,
-                        if (isDesktopSite) Accent.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.1f),
-                        RoundedCornerShape(8.dp)
-                    )
-                    .clickable { onDesktopSiteToggle(!isDesktopSite) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Desktop Site",
-                            color = if (isDesktopSite) Accent else TextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isDesktopSite) SuccessGlow else BgElevated)
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = if (isDesktopSite) "PC MODE ON" else "MOBILE",
-                                color = if (isDesktopSite) Success else TextMuted,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+            if (areAllGlobalDone) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
                     Text(
-                        text = "Converts all WebViews to PC desktop layout for bonus tasks (+5 pts) and rewards status",
-                        color = TextMuted,
-                        fontSize = 11.sp
+                        text = "FINISH IN: ",
+                        color = Color(0xFFFF5252),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Done",
+                        color = Color(0xFF69F0AE),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-
-                Switch(
-                    checked = isDesktopSite,
-                    onCheckedChange = { onDesktopSiteToggle(it) },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Accent,
-                        uncheckedThumbColor = TextMuted,
-                        uncheckedTrackColor = BgElevated
-                    )
+            } else if (isFlashMode && globalTotalSecs > 0) {
+                val timeStr = if (globalTotalSecs >= 60) {
+                    val m = globalTotalSecs / 60
+                    val s = globalTotalSecs % 60
+                    "${m}m ${s}s"
+                } else {
+                    "${globalTotalSecs}s"
+                }
+                Text(
+                    text = "FINISH IN: $timeStr",
+                    color = Color(0xFFFF5252),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            } else {
+                Text(
+                    text = "FINISH IN: --",
+                    color = Color(0xFFFF5252),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
                 )
             }
 
@@ -348,7 +463,7 @@ fun HolisticSettingsCard(
             )
 
             // ═══════════════════════════════════════════════════
-            // 5. PROFILE LEVEL CHANGES Section (Exact 1:1 Image 4)
+            // 4. PROFILE LEVEL CHANGES Section (Exact 1:1 Image 4)
             // ═══════════════════════════════════════════════════
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -366,19 +481,7 @@ fun HolisticSettingsCard(
                 ResetPillButton(
                     label = "Reset",
                     onClick = {
-                        val currentTarget = selectedProfileId
-                        selectedProfileId = "none"
-                        profFlashDelay = 5f
-                        profRandomDelayOn = false
-                        profRandomDelayMin = 1f
-                        profRandomDelayMax = 10f
-                        profAutomizeQueryOn = false
-                        profAutomizeMin = 1f
-                        profAutomizeMax = 5f
-                        autoStopDuration = "0"
-                        maxSearches = "0"
-                        typingSpeed = 100f
-                        onResetProfile(currentTarget)
+                        showResetProfileConfirm = true
                     }
                 )
             }
@@ -545,27 +648,55 @@ fun HolisticSettingsCard(
                     }
 
                     // Finish in text
-                    val finishInText = if (isProfFlashRunning && selectedProfile != null) {
-                        val remainingSearches = ((selectedProfile.maxPoints / 3) - selectedProfile.searchCount).coerceAtLeast(0)
-                        val totalSecs = remainingSearches * profFlashDelay.toInt()
-                        if (totalSecs > 0) {
-                            val m = totalSecs / 60
-                            val s = totalSecs % 60
+                    val isProfDone = selectedProfile != null && (selectedProfile.searchesDone || selectedProfile.searchCount >= (selectedProfile.maxPoints / 3))
+                    val remainingSearches = if (selectedProfile != null) {
+                        ((selectedProfile.maxPoints / 3) - selectedProfile.searchCount).coerceAtLeast(0)
+                    } else 0
+                    val profSecs = remainingSearches * profFlashDelay.toInt()
+
+                    if (isProfDone) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text(
+                                text = "FINISH IN: ",
+                                color = Color(0xFFFF5252),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Done",
+                                color = Color(0xFF69F0AE),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else if (isProfFlashRunning && profSecs > 0) {
+                        val timeStr = if (profSecs >= 60) {
+                            val m = profSecs / 60
+                            val s = profSecs % 60
                             "${m}m ${s}s"
                         } else {
-                            "--"
+                            "${profSecs}s"
                         }
+                        Text(
+                            text = "FINISH IN: $timeStr",
+                            color = Color(0xFFFF5252),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
                     } else {
-                        "--"
+                        Text(
+                            text = "FINISH IN: --",
+                            color = Color(0xFFFF5252),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
                     }
-
-                    Text(
-                        text = "FINISH IN: $finishInText",
-                        color = Color(0xFFFF5252),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
 
                     // Dashed Divider
                     Box(

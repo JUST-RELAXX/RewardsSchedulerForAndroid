@@ -1,7 +1,10 @@
 package com.example.rewardsscheduler.ui.dashboard
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rewardsscheduler.RewardsApp
@@ -31,9 +33,13 @@ enum class DashboardActiveView {
 
 /**
  * Main dashboard screen matching the PC Electron app:
- * - PROFILES view: AppTitleBar, StatusBanner, GlobalPointsCanvas, QuickActionBar, AccountCardsGrid
- * - SESSION view: Dashboard/NutshellCard, ControlsRow, HolisticSettingsCard, ConsoleCard, SessionTiles
- * - Zero emojis! Uses clean vector icons.
+ * - PROFILES view (Home): AppTitleBar, StatusBanner, GlobalPointsCanvas, QuickActionBar, AccountCardsGrid
+ *   (Home total = cumulative daily points across all accounts, resets at midnight)
+ * - SESSION view (Session): Dashboard/NutshellCard, ControlsRow, HolisticSettingsCard, ConsoleCard, SessionTiles
+ *   (Session total = ONLY points earned in CURRENT session, starts at 0, per-profile min(searches*3, maxPoints))
+ * - Task 1: Complete removal of desktop mode
+ * - Task 4: Back button resilience and focused profile navigation
+ * - Zero emojis!
  */
 @Composable
 fun DashboardScreen(
@@ -53,8 +59,13 @@ fun DashboardScreen(
     val engineActiveProfileIds by app.searchEngine.activeProfileIds.collectAsState()
     val isGlobalFlashActive by app.searchEngine.isGlobalFlashActive.collectAsState()
     val flashProfileIds by app.searchEngine.flashProfileIds.collectAsState()
+    val runningProfileIds by app.searchEngine.runningProfileIds.collectAsState()
+    val waitingProfileIds by app.searchEngine.waitingProfileIds.collectAsState()
 
-    // View mode: PROFILES (Dashboard) or SESSION
+    // Task 2: Session search counts (isolated per session)
+    val sessionSearchCounts by app.searchEngine.sessionSearchCounts.collectAsState()
+
+    // View mode: PROFILES (Home) or SESSION
     var activeView by remember { mutableStateOf(DashboardActiveView.PROFILES) }
     var isSessionActive by rememberSaveable { mutableStateOf(false) }
 
@@ -65,31 +76,67 @@ fun DashboardScreen(
     var maxConcurrentProfiles by remember { mutableIntStateOf(app.searchEngine.maxConcurrentProfiles) }
     var isPreviewsCollapsed by remember { mutableStateOf(false) }
 
-    var isDesktopSite by rememberSaveable {
-        mutableStateOf(app.webViewManager.isDesktopSite)
-    }
-
-    val onDesktopSiteToggle: (Boolean) -> Unit = { enabled ->
-        isDesktopSite = enabled
-        app.webViewManager.setDesktopMode(enabled)
-        if (enabled) {
-            app.searchEngine.addLog("Desktop Site enabled: All WebViews converted to PC desktop layout.", "success")
-        } else {
-            app.searchEngine.addLog("Desktop Site disabled: WebViews reverted to mobile layout.", "info")
-        }
-    }
+    // Task 4: Focused profile ID
+    var focusedProfileId by remember { mutableStateOf<String?>(null) }
+    var backPressedTimestamp by remember { mutableLongStateOf(0L) }
 
     // Dialog states
     var signInProfile by remember { mutableStateOf<AccountProfile?>(null) }
     var configProfile by remember { mutableStateOf<AccountProfile?>(null) }
     var graphProfile by remember { mutableStateOf<AccountProfile?>(null) }
     var deleteCandidateProfile by remember { mutableStateOf<AccountProfile?>(null) }
+    var editMaxPointsProfile by remember { mutableStateOf<AccountProfile?>(null) }
 
     // Click-to-locate state
     var locatedProfileId by remember { mutableStateOf<String?>(null) }
 
-    // Calculate total points earned today across all profiles
-    val totalPoints = profiles.sumOf { it.searchCount * 3 }
+    // Active profiles strictly filtered by what the session is running or what the user selected
+    val activeProfiles = profiles.filter { profile ->
+        if (engineActiveProfileIds.isNotEmpty()) {
+            engineActiveProfileIds.contains(profile.id) || selectedProfileIds.contains(profile.id)
+        } else {
+            selectedProfileIds.contains(profile.id)
+        }
+    }
+
+    // Task 2: HOME dashboard shows daily total across ALL accounts capped at maxPoints
+    val homeDailyTotalPoints = profiles.sumOf { minOf(it.searchCount * 3, it.maxPoints) }
+
+    // Task 2: SESSION dashboard shows points accumulated for participating profiles
+    val sessionTotalPoints = activeProfiles.sumOf { prof ->
+        val count = sessionSearchCounts[prof.id] ?: prof.searchCount
+        minOf(count * 3, prof.maxPoints)
+    }
+
+    // Task 4.1: Compose BackHandler
+    BackHandler(enabled = true) {
+        if (focusedProfileId != null) {
+            val pid = focusedProfileId!!
+            if (app.webViewManager.canGoBack(pid)) {
+                app.webViewManager.goBack(pid)
+            } else {
+                focusedProfileId = null // Leave focus and return to session screen
+            }
+        } else if (activeView == DashboardActiveView.SESSION) {
+            // Return to Home screen (Session & foreground service keep running!)
+            activeView = DashboardActiveView.PROFILES
+        } else {
+            // On Home
+            if (isSessionRunning || isSessionActive) {
+                // Background the app; session continues running in foreground service
+                (context as? Activity)?.moveTaskToBack(true)
+            } else {
+                // Two quick presses to exit
+                val now = System.currentTimeMillis()
+                if (now - backPressedTimestamp < 2000L) {
+                    (context as? Activity)?.finish()
+                } else {
+                    backPressedTimestamp = now
+                    Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     // Automatically select all showcase profiles by default once on initial launch
     LaunchedEffect(profiles) {
@@ -104,7 +151,7 @@ fun DashboardScreen(
         app.accountRepository.refreshWithTracker()
     }
 
-    // Initialize search session for specifically selected profiles (opens session, loads WebViews, does not start search yet)
+    // Initialize search session for specifically selected profiles
     fun startSearchSession(targetProfileIds: Set<String>) {
         if (targetProfileIds.isEmpty()) return
         selectedProfileIds = targetProfileIds
@@ -112,15 +159,6 @@ fun DashboardScreen(
         val targets = profiles.filter { targetProfileIds.contains(it.id) }
         app.searchEngine.initSession(targets)
         activeView = DashboardActiveView.SESSION
-    }
-
-    // Active profiles strictly filtered by what the search engine is running or what the user selected
-    val activeProfiles = profiles.filter { profile ->
-        if (engineActiveProfileIds.isNotEmpty()) {
-            engineActiveProfileIds.contains(profile.id) || selectedProfileIds.contains(profile.id)
-        } else {
-            selectedProfileIds.contains(profile.id)
-        }
     }
 
     Column(
@@ -148,7 +186,7 @@ fun DashboardScreen(
             when (activeView) {
                 DashboardActiveView.PROFILES -> {
                     // ═══════════════════════════════════════════════════
-                    // DASHBOARD VIEW (Shown when inspecting profiles)
+                    // HOME / PROFILES VIEW (Daily persistent stats)
                     // ═══════════════════════════════════════════════════
 
                     // Status Banner (.status-banner)
@@ -159,12 +197,12 @@ fun DashboardScreen(
                             profiles.all { it.searchesDone && it.searchCount > 0 } -> "Completed — All profiles done today"
                             else -> "Ready — Select accounts and start your session"
                         },
-                        totalPoints = totalPoints
+                        totalPoints = homeDailyTotalPoints
                     )
 
                     // Global Points Canvas (#globalPointsCanvas)
                     GlobalPointsCanvas(
-                        totalPoints = totalPoints,
+                        totalPoints = homeDailyTotalPoints,
                         onResetGlobalPoints = {
                             coroutineScope.launch {
                                 app.accountRepository.resetAllGlobalPoints()
@@ -232,14 +270,16 @@ fun DashboardScreen(
 
                 DashboardActiveView.SESSION -> {
                     // ═══════════════════════════════════════════════════
-                    // SESSION VIEW (Shown when search session is active)
-                    // Matches PC #sessionView (Top Modules + WebViews)
+                    // SESSION VIEW (Current running session)
                     // ═══════════════════════════════════════════════════
 
-                    // Module 1: Dashboard (NutshellCard with 0 PTS and NUTSHELL Live list)
+                    // Module 1: Dashboard (NutshellCard showing SESSION points, starts at 0)
                     NutshellCard(
                         profiles = if (activeProfiles.isNotEmpty()) activeProfiles else profiles,
-                        totalPoints = totalPoints,
+                        sessionSearchCounts = sessionSearchCounts,
+                        sessionTotalPoints = sessionTotalPoints,
+                        runningProfileIds = runningProfileIds,
+                        waitingProfileIds = waitingProfileIds,
                         onLocateProfile = { profileId ->
                             locatedProfileId = profileId
                             coroutineScope.launch {
@@ -249,6 +289,9 @@ fun DashboardScreen(
                                     locatedProfileId = null
                                 }
                             }
+                        },
+                        onEditMaxPoints = { prof ->
+                            editMaxPointsProfile = prof
                         }
                     )
 
@@ -258,8 +301,6 @@ fun DashboardScreen(
                         isSessionPaused = isSessionPaused,
                         isFetchUnlocked = isFetchUnlocked,
                         selectedCount = activeProfiles.size,
-                        isDesktopSite = isDesktopSite,
-                        onDesktopSiteToggle = { onDesktopSiteToggle(!isDesktopSite) },
                         onFetchClick = {
                             app.searchEngine.unlockFetchGate()
                         },
@@ -300,9 +341,11 @@ fun DashboardScreen(
 
                     // Module 3: Holistic Settings (.holistic-module)
                     HolisticSettingsCard(
+                        profiles = if (activeProfiles.isNotEmpty()) activeProfiles else profiles,
                         globalTimeframeMinutes = globalTimeframeMinutes,
                         onTimeframeChange = { mins ->
                             globalTimeframeMinutes = mins
+                            app.searchEngine.globalTimeframeMinutes = mins
                         },
                         maxConcurrentProfiles = maxConcurrentProfiles,
                         onConcurrentChange = {
@@ -310,7 +353,7 @@ fun DashboardScreen(
                             app.searchEngine.maxConcurrentProfiles = it
                         },
                         isFlashMode = isGlobalFlashActive,
-                        onFlashModeToggle = {
+                        onFlashModeToggle = { delaySec ->
                             if (isGlobalFlashActive) {
                                 app.searchEngine.stopGlobalFlash()
                             } else {
@@ -318,6 +361,7 @@ fun DashboardScreen(
                                 val intent = Intent(context, SearchForegroundService::class.java).apply {
                                     action = SearchForegroundService.ACTION_START_GLOBAL
                                     putExtra(SearchForegroundService.EXTRA_IS_FLASH, true)
+                                    putExtra(SearchForegroundService.EXTRA_FLASH_DELAY, delaySec)
                                     putStringArrayListExtra(SearchForegroundService.EXTRA_PROFILE_IDS, ArrayList(targets.map { it.id }))
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -325,11 +369,9 @@ fun DashboardScreen(
                                 } else {
                                     context.startService(intent)
                                 }
-                                app.searchEngine.startGlobalFlash(targets, 5)
+                                app.searchEngine.startGlobalFlash(targets, delaySec)
                             }
                         },
-                        isDesktopSite = isDesktopSite,
-                        onDesktopSiteToggle = onDesktopSiteToggle,
                         runningFlashProfileIds = flashProfileIds,
                         onStartProfileFlash = { profId, delaySec ->
                             val intent = Intent(context, SearchForegroundService::class.java).apply {
@@ -350,14 +392,14 @@ fun DashboardScreen(
                         },
                         onResetAll = {
                             globalTimeframeMinutes = 30
-                            app.searchEngine.addLog("🔄 Holistic Reset: Global timeframe → 30m default, all profile settings cleared.", "success")
+                            app.searchEngine.globalTimeframeMinutes = 30
+                            app.searchEngine.addLog("Holistic Reset: Global timeframe -> 30m default, all profile settings cleared.", "success")
                         },
                         onResetProfile = { profId ->
                             val prof = profiles.find { it.id == profId }
                             val label = prof?.label ?: "profile"
-                            app.searchEngine.addLog("🔄 Profile Reset: Settings cleared for $label.", "success")
-                        },
-                        profiles = activeProfiles
+                            app.searchEngine.addLog("Profile Reset: Settings cleared for $label.", "success")
+                        }
                     )
 
                     // Module 4: Console (.console-module)
@@ -379,7 +421,7 @@ fun DashboardScreen(
                         Text(
                             text = "SESSION WEBVIEWS (${activeProfiles.size})",
                             color = Accent,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             fontSize = 13.sp,
                             letterSpacing = 0.5.sp
                         )
@@ -424,6 +466,7 @@ fun DashboardScreen(
                                     profile = profile,
                                     isCollapsed = isPreviewsCollapsed,
                                     isLocateGlow = locatedProfileId == profile.id,
+                                    isFocused = focusedProfileId == profile.id,
                                     webViewManager = app.webViewManager,
                                     searchEngine = app.searchEngine,
                                     onCloseClick = {
@@ -441,6 +484,9 @@ fun DashboardScreen(
                                             }
                                             context.startService(intent)
                                         }
+                                    },
+                                    onFocusClick = {
+                                        focusedProfileId = profile.id
                                     }
                                 )
                             }
@@ -454,6 +500,29 @@ fun DashboardScreen(
     }
 
     // ─── Dialogs ───
+
+    // Task 4: Focused Profile View
+    focusedProfileId?.let { pid ->
+        val prof = profiles.find { it.id == pid }
+        if (prof != null) {
+            FocusedProfileView(
+                profile = prof,
+                webViewManager = app.webViewManager,
+                onDismiss = { focusedProfileId = null }
+            )
+        }
+    }
+
+    // Task 3.1: Edit Max Points Dialog (Pencil action from Nutshell row)
+    editMaxPointsProfile?.let { prof ->
+        EditMaxPointsDialog(
+            profile = prof,
+            onDismiss = { editMaxPointsProfile = null },
+            onSave = { newMaxPoints ->
+                app.searchEngine.updateProfileMaxPoints(prof.id, newMaxPoints)
+            }
+        )
+    }
 
     // Sign-in Dialog
     signInProfile?.let { prof ->
@@ -479,6 +548,9 @@ fun DashboardScreen(
             onSave = { updated ->
                 coroutineScope.launch {
                     app.accountRepository.updateProfile(updated)
+                    if (updated.maxPoints != prof.maxPoints) {
+                        app.searchEngine.updateProfileMaxPoints(updated.id, updated.maxPoints)
+                    }
                 }
             }
         )

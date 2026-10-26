@@ -27,20 +27,26 @@ import com.example.rewardsscheduler.theme.*
 
 /**
  * Replicates the PC Electron app's Dashboard module (.dashboard-module) 1:1:
- * - Module Header: Cyan Grid icon + "Dashboard" text
+ * - Module Header: Cyan Grid icon + "Dashboard" text + Collapse toggle
  * - Holistic Points Container: Huge glowing yellow #ffeb3b points counter + "PTS" label
- * - Subheader: "NUTSHELL (Live) (i)" with color legend dialog toggle
+ *   (Shows ONLY points earned by profiles in the CURRENT session, in this session!)
+ * - Subheader: "NUTSHELL (Live) (i)" with color legend dialog toggle + "X pts today"
  * - Nutshell list:
  *   - Status dots (Green: Active, Blue: Idle/Waiting, Red: Error/Stopped, Grey: Completed)
  *   - Profile display name / email with glowing text effect (matching PC text-shadow & pulse-glow)
- *   - Compact searches fraction (e.g. 0/60) + points badge
+ *   - Edit (pencil) action to change max points directly
+ *   - Points/max display (e.g. 18/60)
  * - Zero emojis!
  */
 @Composable
 fun NutshellCard(
     profiles: List<AccountProfile>,
-    totalPoints: Int,
+    sessionSearchCounts: Map<String, Int> = emptyMap(),
+    sessionTotalPoints: Int,
+    runningProfileIds: Set<String> = emptySet(),
+    waitingProfileIds: Set<String> = emptySet(),
     onLocateProfile: (profileId: String) -> Unit,
+    onEditMaxPoints: (AccountProfile) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showLegend by remember { mutableStateOf(false) }
@@ -117,7 +123,7 @@ fun NutshellCard(
                         verticalAlignment = Alignment.Bottom
                     ) {
                         Text(
-                            text = totalPoints.toString(),
+                            text = sessionTotalPoints.toString(),
                             color = Color(0xFFFFEB3B),
                             style = TextStyle(
                                 shadow = Shadow(
@@ -176,13 +182,6 @@ fun NutshellCard(
                                     .padding(horizontal = 4.dp, vertical = 2.dp)
                             )
                         }
-
-                        Text(
-                            text = "$totalPoints pts today",
-                            color = Accent,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        )
                     }
 
                     // Nutshell Info Modal (Color Legend)
@@ -223,7 +222,7 @@ fun NutshellCard(
                     // ═══════════════════════════════════════════════════
                     if (profiles.isEmpty()) {
                         Text(
-                            text = "No accounts configured yet.",
+                            text = "No accounts in active session.",
                             color = TextMuted,
                             fontSize = 11.sp,
                             modifier = Modifier.padding(vertical = 4.dp)
@@ -231,9 +230,16 @@ fun NutshellCard(
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             profiles.forEach { profile ->
+                                val sessionCount = sessionSearchCounts[profile.id] ?: profile.searchCount
+                                val isRunning = runningProfileIds.contains(profile.id) || profile.inProgress
+                                val isWaiting = waitingProfileIds.contains(profile.id)
                                 NutshellProfileRow(
                                     profile = profile,
-                                    onClick = { onLocateProfile(profile.id) }
+                                    sessionSearchCount = sessionCount,
+                                    isRunning = isRunning,
+                                    isWaiting = isWaiting,
+                                    onClick = { onLocateProfile(profile.id) },
+                                    onEditMaxPoints = { onEditMaxPoints(profile) }
                                 )
                             }
                         }
@@ -247,11 +253,16 @@ fun NutshellCard(
 @Composable
 private fun NutshellProfileRow(
     profile: AccountProfile,
-    onClick: () -> Unit
+    sessionSearchCount: Int,
+    isRunning: Boolean,
+    isWaiting: Boolean,
+    onClick: () -> Unit,
+    onEditMaxPoints: () -> Unit
 ) {
-    val isActivelySearching = profile.inProgress
     val isDone = profile.searchesDone
-    val isStoppedOrHalted = profile.searchCount > 0 && !profile.inProgress && !profile.searchesDone
+    val isActivelySearching = isRunning && !isWaiting && !isDone
+    val isWaitingInDelay = isRunning && isWaiting && !isDone
+    val isStoppedOrHalted = sessionSearchCount > 0 && !isRunning && !isDone
 
     val statusColor = when {
         isDone -> Color(0xFFB0BEC5)           // Grey: Completed
@@ -272,7 +283,7 @@ private fun NutshellProfileRow(
         label = "pulseProgress"
     )
 
-    // Dynamic glowing text color matching PC styles
+    // Dynamic glowing text color matching PC styles: glow green ONLY during active searching!
     val textColor = when {
         isActivelySearching -> lerp(Color(0xFF4CAF50), Color(0xFF69F0AE), pulseProgress)
         isStoppedOrHalted -> Color(0xFFFF5252)
@@ -280,7 +291,7 @@ private fun NutshellProfileRow(
         else -> Color(0xFF00B0FF)
     }
 
-    // Dynamic text glow shadow matching PC text-shadow: 0 0 8px rgba(...)
+    // Dynamic text glow shadow matching PC: only glows green when actively searching! In between delays it remains blur blue
     val textShadow = when {
         isActivelySearching -> Shadow(
             color = Color(0xFF69F0AE).copy(alpha = 0.85f * pulseProgress),
@@ -293,9 +304,9 @@ private fun NutshellProfileRow(
             blurRadius = 14f
         )
         !isDone -> Shadow(
-            color = Color(0xFF00B0FF).copy(alpha = 0.6f),
+            color = Color(0xFF00B0FF).copy(alpha = 0.5f),
             offset = Offset(0f, 0f),
-            blurRadius = 10f
+            blurRadius = 8f
         )
         else -> null
     }
@@ -305,8 +316,8 @@ private fun NutshellProfileRow(
         else -> statusColor
     }
 
-    val currentPoints = profile.searchCount * 3
-    val targetCount = profile.totalTargetSearches.coerceAtLeast(1)
+    // Per-profile session points capped at maxPoints: min(points, maxPoints)
+    val currentPoints = minOf(sessionSearchCount * 3, profile.maxPoints)
 
     Box(
         modifier = Modifier
@@ -347,24 +358,34 @@ private fun NutshellProfileRow(
                 )
             }
 
-            // Right: Counts and points
+            // Right: Points/max display + Edit pencil button
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                // Points/max display (e.g. 18/60)
                 Text(
-                    text = "${profile.searchCount}/$targetCount",
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Normal
-                )
-
-                Text(
-                    text = "$currentPoints pts",
+                    text = "$currentPoints/${profile.maxPoints}",
                     color = Accent,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
+
+                // Edit pencil button
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onEditMaxPoints() }
+                        .padding(3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Edit,
+                        contentDescription = "Edit Max Points",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
         }
     }

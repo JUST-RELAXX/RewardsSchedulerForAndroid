@@ -36,8 +36,6 @@ fun ControlsRow(
     isSessionPaused: Boolean,
     isFetchUnlocked: Boolean,
     selectedCount: Int,
-    isDesktopSite: Boolean = false,
-    onDesktopSiteToggle: () -> Unit = {},
     onFetchClick: () -> Unit,
     onStopClick: () -> Unit,
     onExitClick: () -> Unit,
@@ -118,17 +116,6 @@ fun ControlsRow(
                         contentColor = Color(0xFFFF5252),
                         enabled = true,
                         onClick = onExitClick
-                    )
-
-                    // Desktop Site Pill
-                    CompactPillButton(
-                        label = if (isDesktopSite) "Desktop ON" else "Desktop",
-                        icon = AppIcons.Grid,
-                        borderColor = if (isDesktopSite) Success.copy(alpha = 0.5f) else Border,
-                        backgroundColor = if (isDesktopSite) Success.copy(alpha = 0.2f) else BgElevated,
-                        contentColor = if (isDesktopSite) Success else TextSecondary,
-                        enabled = true,
-                        onClick = onDesktopSiteToggle
                     )
 
                     // Collapse / Expand toggle

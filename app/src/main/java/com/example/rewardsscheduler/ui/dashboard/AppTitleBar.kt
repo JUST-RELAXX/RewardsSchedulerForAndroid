@@ -113,21 +113,6 @@ fun AppTitleBar(
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.5.sp
                     )
-
-                    // v2.0 Badge (.titlebar-badge)
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Accent)
-                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                    ) {
-                        Text(
-                            text = "v2.0",
-                            color = Color.White,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
                 }
 
                 // Right: Clock and Session toggle

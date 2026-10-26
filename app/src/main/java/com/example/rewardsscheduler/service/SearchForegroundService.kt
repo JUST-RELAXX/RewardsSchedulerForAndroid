@@ -68,6 +68,7 @@ class SearchForegroundService : Service() {
         when (intent?.action) {
             ACTION_START_GLOBAL -> {
                 val isFlash = intent.getBooleanExtra(EXTRA_IS_FLASH, false)
+                val flashDelaySec = intent.getIntExtra(EXTRA_FLASH_DELAY, 5)
                 val targetIds = intent.getStringArrayListExtra(EXTRA_PROFILE_IDS)?.toSet()
                 startForegroundNow("MS Rewards: Automated searches running...")
                 acquireWakeLock()
@@ -77,7 +78,11 @@ class SearchForegroundService : Service() {
                 } else {
                     allProfiles
                 }
-                app.searchEngine.startGlobal(profilesToRun, isFlash)
+                if (isFlash) {
+                    app.searchEngine.startGlobalFlash(profilesToRun, flashDelaySec)
+                } else {
+                    app.searchEngine.startGlobal(profilesToRun, false)
+                }
             }
             ACTION_START_PROFILE -> {
                 val profId = intent.getStringExtra(EXTRA_PROFILE_ID)

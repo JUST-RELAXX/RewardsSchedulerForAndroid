@@ -90,7 +90,7 @@ fun StatusBanner(
                 )
             }
 
-            // Right: Optional Elapsed Time or Points pill
+            // Right: Optional Elapsed Time
             if (elapsedText.isNotBlank()) {
                 Text(
                     text = elapsedText,
@@ -98,21 +98,6 @@ fun StatusBanner(
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold
                 )
-            } else if (totalPoints > 0) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Accent.copy(alpha = 0.12f))
-                        .border(1.dp, Accent.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = "$totalPoints pts",
-                        color = Accent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
         }
     }
