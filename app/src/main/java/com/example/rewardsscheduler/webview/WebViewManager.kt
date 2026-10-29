@@ -191,12 +191,21 @@ class WebViewManager(private val context: Context) {
     /**
      * Evaluate JavaScript in the WebView for the given profile.
      * Returns the result string via callback.
+     * If the WebView is not attached to a window (windowToken is null),
+     * the JS call will silently fail on Android. In that case we return
+     * a special error string so the caller can fall back to URL navigation.
      */
     fun evaluateJavascript(profileName: String, script: String, callback: ((String?) -> Unit)? = null) {
         val webView = webViews[profileName]
         if (webView == null) {
             Log.w(TAG, "No WebView found for profile '$profileName'")
             callback?.invoke(null)
+            return
+        }
+        // Guard: WebView must be attached to a window for JS eval to work
+        if (webView.windowToken == null) {
+            Log.w(TAG, "WebView for '$profileName' is not attached to a window — JS eval will no-op")
+            callback?.invoke("error: webview_not_attached")
             return
         }
         webView.evaluateJavascript(script) { result ->

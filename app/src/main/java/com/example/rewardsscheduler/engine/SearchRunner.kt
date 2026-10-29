@@ -303,11 +303,12 @@ class SearchRunner(
             val query = queryQueue.getOrElse(i) { PromptQueue.FALLBACK_QUERIES.random() }
             val delaySeconds = if (this.isFlash) this.flashDelaySeconds else plan.allDelays.getOrElse(i) { Random.nextInt(10, 40) }
 
-            // Task 4.3: Up to 3 attempts per search, calling ensureSearchPage() before each
+            // Task 4.3: Up to 5 attempts per search, calling ensureSearchPage() before each.
+            // If JS eval fails (WebView not attached), always fall back to direct URL navigation.
             var searchSuccess = false
             var lastError = "unknown"
 
-            for (attempt in 1..3) {
+            for (attempt in 1..5) {
                 if (!isRunning) break
                 try {
                     ensureSearchPage(query)
@@ -317,27 +318,55 @@ class SearchRunner(
                     if (result.contains("submitted") || result.contains("navigated")) {
                         searchSuccess = true
                         break
-                    } else if (result.contains("box_missing")) {
-                        // Direct navigation fallback already occurred in ensureSearchPage or fallback here
+                    } else if (result.contains("box_missing") || result.contains("webview_not_attached") || result.contains("null")) {
+                        // Direct navigation fallback — always works regardless of WebView attachment
                         val encoded = URLEncoder.encode(query, "UTF-8")
-                        webViewManager.loadUrl(profile.id, "https://www.bing.com/search?q=$encoded")
+                        withContext(Dispatchers.Main) {
+                            webViewManager.loadUrl(profile.id, "https://www.bing.com/search?q=$encoded")
+                        }
+                        // Wait for page to load
+                        webViewManager.awaitPageFinished(profile.id, 10000L)
                         searchSuccess = true
+                        onLog("[${profile.label}] Search attempt $attempt used direct URL fallback", "info")
                         break
                     } else {
                         lastError = result
-                        onLog("[${profile.label}] Search attempt $attempt/3 failed: $result. Retrying...", "warn")
+                        onLog("[${profile.label}] Search attempt $attempt/5 failed: $result. Retrying...", "warn")
                         delay(2000)
                     }
                 } catch (e: Exception) {
                     lastError = e.message ?: "Exception"
-                    onLog("[${profile.label}] Search attempt $attempt/3 error: ${e.message}. Retrying...", "warn")
+                    onLog("[${profile.label}] Search attempt $attempt/5 error: ${e.message}. Retrying...", "warn")
                     delay(2000)
+                    // On 3rd+ attempt: try a page reload before retrying
+                    if (attempt >= 3) {
+                        try {
+                            withContext(Dispatchers.Main) {
+                                webViewManager.reload(profile.id)
+                            }
+                            webViewManager.awaitPageFinished(profile.id, 10000L)
+                        } catch (_: Exception) {}
+                    }
                 }
             }
 
+            // Ultimate fallback: if all 5 attempts failed, force a direct URL search
             if (!searchSuccess) {
-                onLog("[${profile.label}] All 3 attempts failed for \"$query\": $lastError. Continuing to next search.", "error")
-            } else {
+                onLog("[${profile.label}] All 5 JS attempts failed for \"$query\": $lastError. Using direct URL as final fallback.", "warn")
+                try {
+                    val encoded = URLEncoder.encode(query, "UTF-8")
+                    withContext(Dispatchers.Main) {
+                        webViewManager.loadUrl(profile.id, "https://www.bing.com/search?q=$encoded")
+                    }
+                    webViewManager.awaitPageFinished(profile.id, 10000L)
+                    searchSuccess = true
+                    onLog("[${profile.label}] Direct URL fallback succeeded for \"$query\"", "info")
+                } catch (e: Exception) {
+                    onLog("[${profile.label}] Even direct URL fallback failed: ${e.message}", "error")
+                }
+            }
+
+            if (searchSuccess) {
                 executedCount++
                 onLog("[${profile.label}] (${executedCount}/$totalQueriesNeeded) \"$query\"", "info")
 

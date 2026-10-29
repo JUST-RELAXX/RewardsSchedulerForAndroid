@@ -24,7 +24,7 @@ import com.example.rewardsscheduler.theme.*
  *   - Fetch: Cyan download pill (unlocks API budget)
  *   - Stop: Amber pause pill (halts searching, windows stay open)
  *   - Exit: Red square pill (ends session)
- *   - Collapse: Module collapse/expand toggle
+ *   - Collapse: Icon-only chevron pill so it NEVER wraps regardless of screen width
  * - Global actions below:
  *   - Refresh All: Ghost outlined button with refresh icon
  *   - START GLOBAL / RESUME GLOBAL SEARCH: Solid cyan #00b0ff button with white text
@@ -64,7 +64,10 @@ fun ControlsRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Header Left: Cyan icon + "Controls"
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
                     Icon(
                         imageVector = AppIcons.Settings,
                         contentDescription = null,
@@ -81,14 +84,15 @@ fun ControlsRow(
                     )
                 }
 
-                // Header Right: Inline Pills (Fetch, Stop, Exit, Collapse)
+                // Header Right: Pills with fixed widths so they NEVER wrap.
+                // Collapse uses icon-only (chevron) — always fits regardless of fetch label length.
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Fetch Pill
+                    // Fetch Pill — "Fetch ↻" when unlocked (shorter than "Fetch Again")
                     CompactPillButton(
-                        label = if (isFetchUnlocked) "Fetch Again" else "Fetch",
+                        label = if (isFetchUnlocked) "Fetch ↻" else "Fetch",
                         icon = AppIcons.Download,
                         borderColor = Accent.copy(alpha = 0.4f),
                         backgroundColor = if (isFetchUnlocked) Accent.copy(alpha = 0.25f) else Accent.copy(alpha = 0.12f),
@@ -118,14 +122,22 @@ fun ControlsRow(
                         onClick = onExitClick
                     )
 
-                    // Collapse / Expand toggle
+                    // Collapse / Expand — icon-only chevron pill; NEVER wraps
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
+                            .background(Accent.copy(alpha = 0.08f))
+                            .border(1.dp, Accent.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
                             .clickable { isExpanded = !isExpanded }
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(if (isExpanded) "Collapse" else "Expand", color = Accent, fontSize = 11.sp)
+                        Icon(
+                            imageVector = if (isExpanded) AppIcons.ChevronUp else AppIcons.ChevronDown,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            tint = Accent,
+                            modifier = Modifier.size(13.dp)
+                        )
                     }
                 }
             }
@@ -144,80 +156,80 @@ fun ControlsRow(
                     // 2. Global Actions Row (.global-actions)
                     // ═══════════════════════════════════════════════════
                     Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Refresh All (Ghost button)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.White.copy(alpha = 0.04f))
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
-                        .clickable { onRefreshAllClick() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = AppIcons.Refresh,
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "Refresh All",
-                            color = TextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                        // Refresh All (Ghost button)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.White.copy(alpha = 0.04f))
+                                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                .clickable { onRefreshAllClick() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = AppIcons.Refresh,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Refresh All",
+                                    color = TextPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
 
-                // START GLOBAL / RESUME Button (Solid #00b0ff)
-                val isResume = isSessionRunning && isSessionPaused
-                Button(
-                    onClick = onStartGlobalClick,
-                    modifier = Modifier
-                        .weight(1.3f)
-                        .height(36.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Accent,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = AppIcons.Play,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (isResume) "RESUME GLOBAL" else "START GLOBAL",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        )
+                        // START GLOBAL / RESUME Button (Solid #00b0ff)
+                        val isResume = isSessionRunning && isSessionPaused
+                        Button(
+                            onClick = onStartGlobalClick,
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(36.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Accent,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = AppIcons.Play,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (isResume) "RESUME GLOBAL" else "START GLOBAL",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
-}
-}
 }
 
 @Composable
@@ -254,7 +266,8 @@ private fun CompactPillButton(
                 text = label,
                 color = contentColor.copy(alpha = alpha),
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
             )
         }
     }

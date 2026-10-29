@@ -277,44 +277,53 @@ fun SessionTile(
                     .height(webViewHeight)
                     .background(Color(0xFF050505))
             ) {
-                AndroidView(
-                    factory = { ctx ->
-                        FrameLayout(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                        }
-                    },
-                    update = { container ->
-                        if (!isFocused && webView.parent != container) {
-                            (webView.parent as? ViewGroup)?.removeView(webView)
-                            container.removeAllViews()
-                            webView.layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            // Disallow parent Compose scroll interception so web contents scroll smoothly
-                            webView.setOnTouchListener { view, event ->
-                                when (event.actionMasked) {
-                                    MotionEvent.ACTION_DOWN -> {
-                                        view.parent?.requestDisallowInterceptTouchEvent(true)
-                                        view.requestFocus()
-                                    }
-                                    MotionEvent.ACTION_MOVE -> {
-                                        view.parent?.requestDisallowInterceptTouchEvent(true)
-                                    }
-                                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                        view.parent?.requestDisallowInterceptTouchEvent(false)
-                                    }
+                // key(isFocused) forces the AndroidView to be recreated when focus
+                // state changes. This guarantees the WebView is properly re-parented
+                // after exiting focus mode (fixes black-screen bug).
+                key(isFocused) {
+                    if (!isFocused) {
+                        AndroidView(
+                            factory = { ctx ->
+                                FrameLayout(ctx).apply {
+                                    layoutParams = ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
                                 }
-                                false
-                            }
-                            container.addView(webView)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                            },
+                            update = { container ->
+                                if (webView.parent != container) {
+                                    (webView.parent as? ViewGroup)?.removeView(webView)
+                                    container.removeAllViews()
+                                    webView.layoutParams = FrameLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    // Disallow parent Compose scroll interception so web contents scroll smoothly
+                                    webView.setOnTouchListener { view, event ->
+                                        when (event.actionMasked) {
+                                            MotionEvent.ACTION_DOWN -> {
+                                                view.parent?.requestDisallowInterceptTouchEvent(true)
+                                                view.requestFocus()
+                                            }
+                                            MotionEvent.ACTION_MOVE -> {
+                                                view.parent?.requestDisallowInterceptTouchEvent(true)
+                                            }
+                                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                                view.parent?.requestDisallowInterceptTouchEvent(false)
+                                            }
+                                        }
+                                        false
+                                    }
+                                    container.addView(webView)
+                                }
+                                // Always resume webview when it's visible in tile
+                                webView.onResume()
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
 
             // ═══════════════════════════════════════════════════

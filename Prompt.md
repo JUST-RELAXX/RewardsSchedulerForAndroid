@@ -3,7 +3,8 @@
 You are building a native Android app that reproduces my PC app "MS Rewards
 Scheduler" (Electron, repo: https://github.com/JUST-RELAXX/RewardsScheduler).
 READ THAT REPO FIRST. It is the source of truth for behavior and UI. Same UI,
-same features — the PC layout is landscape, this one is portrait.
+same features — the PC layout is landscape, this one is portrait. If you are an ai you need to get the sources from the site else if you are an agent
+like claude etc running on antigravity etc... you don't need to copy anything rather you can just get the source picked from user's directloy in drive E names RewardsScheduler
 
 I do not write code. You are the engineer. Rules for working with me:
 - If something is ambiguous or you cannot verify it, STOP AND ASK. Do not guess.

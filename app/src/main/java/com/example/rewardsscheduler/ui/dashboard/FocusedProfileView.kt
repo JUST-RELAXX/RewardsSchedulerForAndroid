@@ -3,7 +3,6 @@ package com.example.rewardsscheduler.ui.dashboard
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -33,7 +32,12 @@ import com.example.rewardsscheduler.webview.WebViewManager
  * 4.1: Compose BackHandler:
  *   - if WebView canGoBack() -> goBack()
  *   - if it has no history -> leave focus and return to session screen
- * 4.2: Small toolbar: Back, Bing home, Reload, Forward.
+ * 4.2: Compact toolbar using icons only for nav + short "X" button for close.
+ *      All buttons are icon-only so the row NEVER wraps regardless of screen width.
+ *
+ * CRITICAL: onDispose does NOT remove the WebView from its parent any more.
+ * Instead, the SessionTile's update lambda handles re-parenting seamlessly.
+ * This prevents the black-screen bug on focus exit.
  */
 @Composable
 fun FocusedProfileView(
@@ -44,8 +48,13 @@ fun FocusedProfileView(
     val webView = remember { webViewManager.getOrCreateWebView(profile.id) }
 
     DisposableEffect(Unit) {
+        // Resume the WebView when entering focus
+        webView.onResume()
         onDispose {
+            // Detach from focus container so SessionTile can re-parent
             (webView.parent as? ViewGroup)?.removeView(webView)
+            // Make sure WebView is still alive
+            webView.onResume()
         }
     }
 
@@ -73,23 +82,24 @@ fun FocusedProfileView(
                 .fillMaxSize()
                 .background(Color(0xFF0A0E18))
         ) {
-            // Task 4.2 Toolbar: Back, Bing home, Reload, Forward
+            // Task 4.2 Compact Toolbar — icon-only nav buttons + icon close
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF0F1523))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Left: Nav buttons (icon-only, compact)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Back (webview history)
-                    ToolbarButton(
+                    CompactNavIcon(
                         icon = AppIcons.ArrowBack,
-                        label = "Back",
+                        contentDescription = "Back",
                         onClick = {
                             if (webViewManager.canGoBack(profile.id)) {
                                 webViewManager.goBack(profile.id)
@@ -100,48 +110,48 @@ fun FocusedProfileView(
                     )
 
                     // Bing home
-                    ToolbarButton(
+                    CompactNavIcon(
                         icon = AppIcons.Home,
-                        label = "Bing",
+                        contentDescription = "Bing",
                         onClick = {
                             webViewManager.loadUrl(profile.id, "https://www.bing.com")
                         }
                     )
 
                     // Reload
-                    ToolbarButton(
+                    CompactNavIcon(
                         icon = AppIcons.Refresh,
-                        label = "Reload",
+                        contentDescription = "Reload",
                         onClick = {
                             webViewManager.reload(profile.id)
                         }
                     )
 
                     // Forward (webview forward history)
-                    ToolbarButton(
+                    CompactNavIcon(
                         icon = AppIcons.ArrowForward,
-                        label = "Forward",
+                        contentDescription = "Forward",
                         onClick = {
                             webViewManager.goForward(profile.id)
                         }
                     )
                 }
 
-                // Done / Exit Focus button
+                // Right: Close focus — icon X with short label
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Accent.copy(alpha = 0.15f))
-                        .border(1.dp, Accent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .background(Color(0xFFFF4D4D).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFFFF4D4D).copy(alpha = 0.5f), RoundedCornerShape(4.dp))
                         .clickable { onDismiss() }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Close Focus",
-                        color = Accent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                    Icon(
+                        imageVector = AppIcons.Close,
+                        contentDescription = "Close Focus",
+                        tint = Color(0xFFFF4D4D),
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
@@ -183,6 +193,8 @@ fun FocusedProfileView(
                             }
                             container.addView(webView)
                         }
+                        // Ensure WebView is resumed and visible
+                        webView.onResume()
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -191,37 +203,30 @@ fun FocusedProfileView(
     }
 }
 
+/**
+ * Compact icon-only navigation button for the focus toolbar.
+ * No text label — just an icon in a subtle rounded box.
+ */
 @Composable
-private fun ToolbarButton(
+private fun CompactNavIcon(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
+    contentDescription: String,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
+            .size(32.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(Color.White.copy(alpha = 0.08f))
             .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = Color(0xFFCFD8DC),
-                modifier = Modifier.size(13.dp)
-            )
-            Text(
-                text = label,
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color(0xFFCFD8DC),
+            modifier = Modifier.size(15.dp)
+        )
     }
 }
