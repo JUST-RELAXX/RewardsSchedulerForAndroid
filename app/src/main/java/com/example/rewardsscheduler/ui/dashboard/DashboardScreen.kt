@@ -421,6 +421,21 @@ fun DashboardScreen(
                                 }
                             }
                             app.searchEngine.addLog("Profile Reset: Settings cleared for $label.", "success")
+                        },
+                        onUpdateProfileDelays = { profId, minDelay, maxDelay ->
+                            val prof = profiles.find { it.id == profId }
+                            if (prof != null) {
+                                coroutineScope.launch {
+                                    app.accountRepository.updateProfile(
+                                        prof.copy(
+                                            customMinDelay = minDelay,
+                                            customMaxDelay = maxDelay
+                                        )
+                                    )
+                                }
+                                val delayStr = if (minDelay != null && maxDelay != null) "${minDelay}s - ${maxDelay}s" else "Auto"
+                                app.searchEngine.addLog("[${prof.label}] Pacing delay set to $delayStr", "info")
+                            }
                         }
                     )
 

@@ -56,6 +56,7 @@ fun HolisticSettingsCard(
     onStopProfileFlash: (profileId: String) -> Unit = {},
     onResetAll: () -> Unit = {},
     onResetProfile: (profileId: String) -> Unit = {},
+    onUpdateProfileDelays: (profileId: String, minDelay: Int?, maxDelay: Int?) -> Unit = { _, _, _ -> },
     profiles: List<AccountProfile> = emptyList(),
     modifier: Modifier = Modifier
 ) {
@@ -74,6 +75,16 @@ fun HolisticSettingsCard(
     var profRandomDelayMin by remember { mutableFloatStateOf(1f) }
     var profRandomDelayMax by remember { mutableFloatStateOf(10f) }
 
+    val selectedProfile = if (selectedProfileId == "none" || selectedProfileId.isBlank()) null else profiles.find { it.id == selectedProfileId }
+
+    LaunchedEffect(selectedProfileId) {
+        selectedProfile?.let { prof ->
+            profRandomDelayOn = prof.customMinDelay != null && prof.customMaxDelay != null
+            profRandomDelayMin = (prof.customMinDelay ?: 3).toFloat().coerceIn(0f, 500f)
+            profRandomDelayMax = (prof.customMaxDelay ?: 30).toFloat().coerceIn(0f, 500f)
+        }
+    }
+
     var profAutomizeQueryOn by remember { mutableStateOf(false) }
     var profAutomizeMin by remember { mutableFloatStateOf(1f) }
     var profAutomizeMax by remember { mutableFloatStateOf(5f) }
@@ -84,8 +95,6 @@ fun HolisticSettingsCard(
     var typingSpeed by remember { mutableFloatStateOf(100f) }
     var addRandomTypingVariation by remember { mutableStateOf(false) }
     var enableHumanLikeTyping by remember { mutableStateOf(true) }
-
-    val selectedProfile = if (selectedProfileId == "none" || selectedProfileId.isBlank()) null else profiles.find { it.id == selectedProfileId }
 
     val fieryGradient = Brush.horizontalGradient(
         colors = listOf(
@@ -724,11 +733,21 @@ fun HolisticSettingsCard(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { profRandomDelayOn = false }
+                                modifier = Modifier.clickable {
+                                    profRandomDelayOn = false
+                                    selectedProfile?.let { prof ->
+                                        onUpdateProfileDelays(prof.id, null, null)
+                                    }
+                                }
                             ) {
                                 RadioButton(
                                     selected = !profRandomDelayOn,
-                                    onClick = { profRandomDelayOn = false },
+                                    onClick = {
+                                        profRandomDelayOn = false
+                                        selectedProfile?.let { prof ->
+                                            onUpdateProfileDelays(prof.id, null, null)
+                                        }
+                                    },
                                     colors = RadioButtonDefaults.colors(selectedColor = Accent)
                                 )
                                 Text("Off", color = TextPrimary, fontSize = 11.sp)
@@ -736,11 +755,21 @@ fun HolisticSettingsCard(
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { profRandomDelayOn = true }
+                                modifier = Modifier.clickable {
+                                    profRandomDelayOn = true
+                                    selectedProfile?.let { prof ->
+                                        onUpdateProfileDelays(prof.id, profRandomDelayMin.toInt(), profRandomDelayMax.toInt())
+                                    }
+                                }
                             ) {
                                 RadioButton(
                                     selected = profRandomDelayOn,
-                                    onClick = { profRandomDelayOn = true },
+                                    onClick = {
+                                        profRandomDelayOn = true
+                                        selectedProfile?.let { prof ->
+                                            onUpdateProfileDelays(prof.id, profRandomDelayMin.toInt(), profRandomDelayMax.toInt())
+                                        }
+                                    },
                                     colors = RadioButtonDefaults.colors(selectedColor = Accent)
                                 )
                                 Text("On", color = TextPrimary, fontSize = 11.sp)
@@ -762,6 +791,9 @@ fun HolisticSettingsCard(
                                 onValueChange = { range ->
                                     profRandomDelayMin = range.start
                                     profRandomDelayMax = range.endInclusive
+                                    selectedProfile?.let { prof ->
+                                        onUpdateProfileDelays(prof.id, range.start.toInt(), range.endInclusive.toInt())
+                                    }
                                 },
                                 valueRange = 0f..500f,
                                 colors = SliderDefaults.colors(

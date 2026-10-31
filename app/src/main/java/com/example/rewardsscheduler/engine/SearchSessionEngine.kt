@@ -432,7 +432,7 @@ class SearchSessionEngine(
     fun stopProfileFlash(profileId: String) {
         val prof = accountRepository.profiles.value.find { it.id == profileId }
         val label = prof?.label ?: profileId
-        _flashProfileIds.value = _flashProfileIds.value - profileId
+        _flashProfileIds.update { it - profileId }
         if (_flashProfileIds.value.isEmpty()) {
             _isGlobalFlashActive.value = false
         }
@@ -447,9 +447,9 @@ class SearchSessionEngine(
 
     fun pauseProfile(profileId: String) {
         runners[profileId]?.pause()
-        _runningProfileIds.value = _runningProfileIds.value - profileId
-        _flashProfileIds.value = _flashProfileIds.value - profileId
-        _waitingProfileIds.value = _waitingProfileIds.value - profileId
+        _runningProfileIds.update { it - profileId }
+        _flashProfileIds.update { it - profileId }
+        _waitingProfileIds.update { it - profileId }
         if (_flashProfileIds.value.isEmpty()) {
             _isGlobalFlashActive.value = false
         }
@@ -460,11 +460,11 @@ class SearchSessionEngine(
     fun removeProfileFromSession(profileId: String) {
         runners[profileId]?.stop()
         runners.remove(profileId)
-        _runningProfileIds.value = _runningProfileIds.value - profileId
-        _flashProfileIds.value = _flashProfileIds.value - profileId
-        _waitingProfileIds.value = _waitingProfileIds.value - profileId
-        _activeProfileIds.value = _activeProfileIds.value - profileId
-        _sessionSearchCounts.value = _sessionSearchCounts.value - profileId
+        _runningProfileIds.update { it - profileId }
+        _flashProfileIds.update { it - profileId }
+        _waitingProfileIds.update { it - profileId }
+        _activeProfileIds.update { it - profileId }
+        _sessionSearchCounts.update { it - profileId }
         if (_flashProfileIds.value.isEmpty()) {
             _isGlobalFlashActive.value = false
         }
