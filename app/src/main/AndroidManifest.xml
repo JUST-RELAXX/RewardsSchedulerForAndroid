@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".RewardsApp"
@@ -40,8 +41,10 @@
 
         <receiver
             android:name=".service.ReminderReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.example.rewardsscheduler.ACTION_REMINDER_TICK" />
                 <action android:name="com.example.rewardsscheduler.ACTION_SNOOZE" />
             </intent-filter>

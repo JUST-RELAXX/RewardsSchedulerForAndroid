@@ -393,11 +393,33 @@ fun DashboardScreen(
                         onResetAll = {
                             globalTimeframeMinutes = 30
                             app.searchEngine.globalTimeframeMinutes = 30
+                            coroutineScope.launch {
+                                profiles.forEach { prof ->
+                                    app.accountRepository.updateProfile(
+                                        prof.copy(
+                                            timeframeMinutes = null,
+                                            customMinDelay = null,
+                                            customMaxDelay = null
+                                        )
+                                    )
+                                }
+                            }
                             app.searchEngine.addLog("Holistic Reset: Global timeframe -> 30m default, all profile settings cleared.", "success")
                         },
                         onResetProfile = { profId ->
                             val prof = profiles.find { it.id == profId }
                             val label = prof?.label ?: "profile"
+                            if (prof != null) {
+                                coroutineScope.launch {
+                                    app.accountRepository.updateProfile(
+                                        prof.copy(
+                                            timeframeMinutes = null,
+                                            customMinDelay = null,
+                                            customMaxDelay = null
+                                        )
+                                    )
+                                }
+                            }
                             app.searchEngine.addLog("Profile Reset: Settings cleared for $label.", "success")
                         }
                     )

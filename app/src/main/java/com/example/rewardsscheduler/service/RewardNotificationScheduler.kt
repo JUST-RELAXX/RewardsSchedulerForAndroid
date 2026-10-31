@@ -183,6 +183,10 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val scheduler = RewardNotificationScheduler(context)
         when (intent?.action) {
+            Intent.ACTION_BOOT_COMPLETED,
+            "android.intent.action.QUICKBOOT_POWERON" -> {
+                scheduler.scheduleInitialReminder()
+            }
             RewardNotificationScheduler.ACTION_SNOOZE -> {
                 val mins = intent.getIntExtra(RewardNotificationScheduler.EXTRA_SNOOZE_MINUTES, 30)
                 scheduler.snooze(mins)

@@ -126,6 +126,32 @@ class SearchSessionEngine(
     }
 
     /**
+     * Refreshes prompts live from backend for a specific profile with the given topics.
+     */
+    suspend fun refreshProfilePrompts(profileId: String, topics: List<String>): Int {
+        val runner = runners[profileId] ?: run {
+            val prof = accountRepository.profiles.value.find { it.id == profileId } ?: return 0
+            val newRunner = createRunner(prof)
+            runners[profileId] = newRunner
+            newRunner
+        }
+        return runner.refreshPrompts(topics)
+    }
+
+    /**
+     * Injects a user custom query directly into a profile's queue to be searched next.
+     */
+    fun addCustomQueryToProfile(profileId: String, query: String) {
+        val runner = runners[profileId] ?: run {
+            val prof = accountRepository.profiles.value.find { it.id == profileId } ?: return
+            val newRunner = createRunner(prof)
+            runners[profileId] = newRunner
+            newRunner
+        }
+        runner.addCustomQuery(query)
+    }
+
+    /**
      * Update max points for a profile mid-run or prior to run.
      * Persists to repository, updates active runner, and logs change to Console.
      */

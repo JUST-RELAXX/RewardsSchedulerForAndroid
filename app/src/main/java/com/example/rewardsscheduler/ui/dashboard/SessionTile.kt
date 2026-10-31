@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.rewardsscheduler.data.AccountProfile
 import com.example.rewardsscheduler.engine.PromptQueue
+import kotlinx.coroutines.launch
 import com.example.rewardsscheduler.engine.SearchSessionEngine
 import com.example.rewardsscheduler.theme.*
 import com.example.rewardsscheduler.webview.WebViewManager
@@ -67,12 +68,14 @@ fun SessionTile(
     modifier: Modifier = Modifier
 ) {
     val webView = remember { webViewManager.getOrCreateWebView(profile.id) }
+    val coroutineScope = rememberCoroutineScope()
 
     var isFullExpanded by remember { mutableStateOf(false) }
     var showCloseConfirm by remember { mutableStateOf(false) }
     var isGraphExpanded by remember { mutableStateOf(false) }
     var isConfigExpanded by remember { mutableStateOf(false) }
     var customDesireText by remember { mutableStateOf("") }
+    var isRefreshingPrompts by remember { mutableStateOf(false) }
     var promptRefreshNotice by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
 
     val runningProfileIds by searchEngine.runningProfileIds.collectAsState()
@@ -699,8 +702,14 @@ fun SessionTile(
                             modifier = Modifier
                                 .height(30.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Accent)
-                                .clickable { customDesireText = "" }
+                                .background(if (customDesireText.isNotBlank()) Accent else Accent.copy(alpha = 0.5f))
+                                .clickable(enabled = customDesireText.isNotBlank()) {
+                                    val queryToAdd = customDesireText.trim()
+                                    if (queryToAdd.isNotEmpty()) {
+                                        searchEngine.addCustomQueryToProfile(profile.id, queryToAdd)
+                                        customDesireText = ""
+                                    }
+                                }
                                 .padding(horizontal = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -719,24 +728,34 @@ fun SessionTile(
                             .fillMaxWidth()
                             .height(30.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(Color.Transparent)
+                            .background(if (isRefreshingPrompts) Accent.copy(alpha = 0.15f) else Color.Transparent)
                             .border(1.dp, Accent, RoundedCornerShape(4.dp))
-                            .clickable {
+                            .clickable(enabled = !isRefreshingPrompts) {
                                 val selectedTopics = if (profile.selectedCategories.isNotEmpty()) {
                                     profile.selectedCategories.shuffled().take(3)
                                 } else {
                                     PromptQueue.DEFAULT_TOPICS.shuffled().take(3)
                                 }
-                                promptRefreshNotice = Pair(selectedTopics, 25)
-                                searchEngine.addLog(
-                                    "[${profile.label}] Auto-selected: ${selectedTopics.joinToString(", ")} - Loaded 25 queries",
-                                    "success"
-                                )
+                                isRefreshingPrompts = true
+                                coroutineScope.launch {
+                                    try {
+                                        val count = searchEngine.refreshProfilePrompts(profile.id, selectedTopics)
+                                        promptRefreshNotice = Pair(selectedTopics, count)
+                                        searchEngine.addLog(
+                                            "[${profile.label}] Auto-selected: ${selectedTopics.joinToString(", ")} - Loaded $count queries",
+                                            "success"
+                                        )
+                                    } catch (e: Exception) {
+                                        searchEngine.addLog("[${profile.label}] Error refreshing prompts: ${e.message}", "error")
+                                    } finally {
+                                        isRefreshingPrompts = false
+                                    }
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Refresh Prompts",
+                            text = if (isRefreshingPrompts) "Refreshing Prompts..." else "Refresh Prompts",
                             color = Accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold

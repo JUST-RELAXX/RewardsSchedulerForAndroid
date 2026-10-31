@@ -145,6 +145,66 @@ class SearchRunner(
         }
     }
 
+    suspend fun refreshPrompts(customTopics: List<String>): Int {
+        cachedQueue = null
+        cachedPrompts = null
+        onStatusChange(profile.id, "Fetching Prompts")
+        val fetchResult = backendClient.fetchPrompts(
+            profileId = profile.id,
+            topics = customTopics,
+            isManual = true,
+            onLog = onLog
+        )
+        val fetchedPrompts = when (fetchResult) {
+            is BackendClient.FetchResult.Success -> fetchResult.prompts
+            is BackendClient.FetchResult.Fallback -> fetchResult.prompts
+        }
+        cachedPrompts = fetchedPrompts
+
+        val effectiveTimeframe = profile.timeframeMinutes ?: globalTimeframeMinutes
+        val plan = DelayGenerator.createPlan(
+            maxPoints = profile.maxPoints,
+            timeframeMinutes = effectiveTimeframe,
+            customMinDelay = profile.customMinDelay,
+            customMaxDelay = profile.customMaxDelay,
+            onAdjustment = { msg -> onLog("[${profile.label}] $msg", "warn") }
+        )
+        cachedPlan = plan
+
+        val totalQueriesNeeded = plan.totalSearches
+        val queryQueue = PromptQueue.buildSessionQueue(fetchedPrompts, totalQueriesNeeded)
+        cachedQueue = queryQueue
+
+        val nextQuery = queryQueue.getOrNull(executedCount) ?: "Ready..."
+        accountRepository.updateProfileProgress(
+            id = profile.id,
+            searchCount = executedCount,
+            totalTarget = totalQueriesNeeded,
+            currentQuery = nextQuery,
+            pacingDelay = null
+        )
+        onStatusChange(profile.id, if (isRunning) "Searching" else "Ready")
+        return queryQueue.size
+    }
+
+    fun addCustomQuery(query: String) {
+        if (query.isBlank()) return
+        val currentQueue = cachedQueue?.toMutableList() ?: PromptQueue.buildSessionQueue(PromptQueue.FALLBACK_QUERIES, 25).toMutableList()
+        val insertIndex = executedCount.coerceIn(0, currentQueue.size)
+        currentQueue.add(insertIndex, query)
+        cachedQueue = currentQueue
+        runnerScope.launch {
+            accountRepository.updateProfileProgress(
+                id = profile.id,
+                searchCount = executedCount,
+                totalTarget = currentQueue.size,
+                currentQuery = query,
+                pacingDelay = null
+            )
+        }
+        onLog("[${profile.label}] Added custom desire: \"$query\" (next search)", "success")
+    }
+
     @Volatile var isFlash: Boolean = false
         private set
     @Volatile var flashDelaySeconds: Int = 5
