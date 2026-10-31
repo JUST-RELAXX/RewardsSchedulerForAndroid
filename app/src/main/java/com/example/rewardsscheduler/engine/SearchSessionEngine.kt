@@ -10,8 +10,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.flow.update
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -19,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Global Engine coordinating multi-profile search sessions.
- * Enforces concurrent profile limit (default 3, user-configurable).
+ * Runs all active session profiles concurrently (no artificial profile limits).
  * Maintains global console log history with color-typed entries.
  * Maintains isolated session search counters for current active session (Task 2).
  */
@@ -37,8 +36,8 @@ class SearchSessionEngine(
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
-    // Concurrency setting (default 3)
-    var maxConcurrentProfiles: Int = 3
+    // Concurrency setting (unlimited by default — all profiles run in parallel)
+    var maxConcurrentProfiles: Int = Int.MAX_VALUE
 
     // Global timeframe minutes (default 30)
     var globalTimeframeMinutes: Int = 30
@@ -174,24 +173,24 @@ class SearchSessionEngine(
             onStatusChange = { profileId, status ->
                 when (status) {
                     "Completed", "Finished", "Stopped", "Idle", "Error" -> {
-                        _runningProfileIds.value = _runningProfileIds.value - profileId
-                        _flashProfileIds.value = _flashProfileIds.value - profileId
-                        _waitingProfileIds.value = _waitingProfileIds.value - profileId
+                        _runningProfileIds.update { it - profileId }
+                        _flashProfileIds.update { it - profileId }
+                        _waitingProfileIds.update { it - profileId }
                         if (_flashProfileIds.value.isEmpty()) {
                             _isGlobalFlashActive.value = false
                         }
                     }
                     "Searching" -> {
-                        _runningProfileIds.value = _runningProfileIds.value + profileId
+                        _runningProfileIds.update { it + profileId }
                     }
                 }
             },
             onSearchExecuted = { id -> recordSessionSearch(id) },
             onWaitingChange = { profileId, isWaiting ->
                 if (isWaiting) {
-                    _waitingProfileIds.value = _waitingProfileIds.value + profileId
+                    _waitingProfileIds.update { it + profileId }
                 } else {
-                    _waitingProfileIds.value = _waitingProfileIds.value - profileId
+                    _waitingProfileIds.update { it - profileId }
                 }
             }
         )
@@ -257,33 +256,29 @@ class SearchSessionEngine(
             _flashProfileIds.value = emptySet()
         }
 
-        addLog("Starting global session with ${selectedProfiles.size} profiles (Concurrency: $maxConcurrentProfiles)", "info")
+        addLog("Starting global session with ${selectedProfiles.size} profiles", "info")
 
         globalSessionJob = scope.launch {
-            val semaphore = Semaphore(maxConcurrentProfiles)
-
             val tasks = selectedProfiles.map { profile ->
                 async {
-                    semaphore.withPermit {
-                        if (!_isSessionRunning.value) return@withPermit
+                    if (!_isSessionRunning.value) return@async
 
-                        val runner = runners[profile.id] ?: createRunner(profile).also { runners[profile.id] = it }
+                    val runner = runners[profile.id] ?: createRunner(profile).also { runners[profile.id] = it }
 
-                        withContext(Dispatchers.Main) {
-                            webViewManager.getOrCreateWebView(profile.id)
-                        }
-
-                        _runningProfileIds.value = _runningProfileIds.value + profile.id
-                        if (isFlash) {
-                            _flashProfileIds.value = _flashProfileIds.value + profile.id
-                        }
-                        runner.start(this, isFlash, flashDelaySec)
-                        while (runner.isRunning && _isSessionRunning.value) {
-                            delay(500)
-                        }
-                        _runningProfileIds.value = _runningProfileIds.value - profile.id
-                        _flashProfileIds.value = _flashProfileIds.value - profile.id
+                    withContext(Dispatchers.Main) {
+                        webViewManager.getOrCreateWebView(profile.id)
                     }
+
+                    _runningProfileIds.update { it + profile.id }
+                    if (isFlash) {
+                        _flashProfileIds.update { it + profile.id }
+                    }
+                    runner.start(this, isFlash, flashDelaySec)
+                    while (runner.isRunning && _isSessionRunning.value) {
+                        delay(500)
+                    }
+                    _runningProfileIds.update { it - profile.id }
+                    _flashProfileIds.update { it - profile.id }
                 }
             }
 
@@ -383,9 +378,9 @@ class SearchSessionEngine(
             runners[profileId] = newRunner
             newRunner
         }
-        _runningProfileIds.value = _runningProfileIds.value + profileId
+        _runningProfileIds.update { it + profileId }
         if (isFlash) {
-            _flashProfileIds.value = _flashProfileIds.value + profileId
+            _flashProfileIds.update { it + profileId }
         }
         accountRepository.setProfileInProgress(profileId, true)
         runner.start(scope, isFlash, flashDelaySec)
@@ -399,7 +394,7 @@ class SearchSessionEngine(
         val label = prof?.label ?: profileId
         val runner = runners[profileId]
         if (runner != null && runner.isRunning) {
-            _flashProfileIds.value = _flashProfileIds.value + profileId
+            _flashProfileIds.update { it + profileId }
             runner.setFlash(true, flashDelaySec)
             addLog("⚡ FLASH MODE TRIGGERED for $label! (Delay: ${flashDelaySec}s)...", "success")
         } else {
