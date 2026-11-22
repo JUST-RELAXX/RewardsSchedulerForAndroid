@@ -64,7 +64,7 @@ class WebViewManager(private val context: Context) {
             isScrollContainer = true
             overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
 
-            // Default mobile WebView settings
+            // Default mobile WebView settings with background execution support
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -74,6 +74,10 @@ class WebViewManager(private val context: Context) {
                 setSupportMultipleWindows(false)
                 allowFileAccess = false
                 allowContentAccess = false
+                mediaPlaybackRequiresUserGesture = false
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    offscreenPreRaster = true
+                }
             }
 
             CookieManager.getInstance().setAcceptCookie(true)
@@ -189,11 +193,23 @@ class WebViewManager(private val context: Context) {
     }
 
     /**
+     * Resumes timers and active WebViews for reliable background operation.
+     */
+    fun resumeAll() {
+        try {
+            webViews.values.forEach { wv ->
+                wv.resumeTimers()
+                wv.onResume()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error in resumeAll: ${e.message}")
+        }
+    }
+
+    /**
      * Evaluate JavaScript in the WebView for the given profile.
      * Returns the result string via callback.
-     * If the WebView is not attached to a window (windowToken is null),
-     * the JS call will silently fail on Android. In that case we return
-     * a special error string so the caller can fall back to URL navigation.
+     * Executes safely even when running in background with offscreenPreRaster enabled.
      */
     fun evaluateJavascript(profileName: String, script: String, callback: ((String?) -> Unit)? = null) {
         val webView = webViews[profileName]
@@ -202,14 +218,13 @@ class WebViewManager(private val context: Context) {
             callback?.invoke(null)
             return
         }
-        // Guard: WebView must be attached to a window for JS eval to work
-        if (webView.windowToken == null) {
-            Log.w(TAG, "WebView for '$profileName' is not attached to a window — JS eval will no-op")
-            callback?.invoke("error: webview_not_attached")
-            return
-        }
-        webView.evaluateJavascript(script) { result ->
-            callback?.invoke(result)
+        try {
+            webView.evaluateJavascript(script) { result ->
+                callback?.invoke(result)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "evaluateJavascript exception for '$profileName': ${e.message}")
+            callback?.invoke("error: ${e.message}")
         }
     }
 

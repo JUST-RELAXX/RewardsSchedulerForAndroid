@@ -57,6 +57,7 @@ fun HolisticSettingsCard(
     onResetAll: () -> Unit = {},
     onResetProfile: (profileId: String) -> Unit = {},
     onUpdateProfileDelays: (profileId: String, minDelay: Int?, maxDelay: Int?) -> Unit = { _, _, _ -> },
+    onConfigureRunner: (profileId: String, autoStopMins: Int, maxSearches: Int, typingSpeed: Int, typingVariation: Boolean, humanLike: Boolean) -> Unit = { _, _, _, _, _, _ -> },
     profiles: List<AccountProfile> = emptyList(),
     modifier: Modifier = Modifier
 ) {
@@ -95,6 +96,19 @@ fun HolisticSettingsCard(
     var typingSpeed by remember { mutableFloatStateOf(100f) }
     var addRandomTypingVariation by remember { mutableStateOf(false) }
     var enableHumanLikeTyping by remember { mutableStateOf(true) }
+
+    LaunchedEffect(selectedProfileId, autoStopDuration, maxSearches, typingSpeed, addRandomTypingVariation, enableHumanLikeTyping) {
+        val autoStop = autoStopDuration.toIntOrNull() ?: 0
+        val maxCap = maxSearches.toIntOrNull() ?: 0
+        onConfigureRunner(
+            selectedProfileId,
+            autoStop,
+            maxCap,
+            typingSpeed.toInt(),
+            addRandomTypingVariation,
+            enableHumanLikeTyping
+        )
+    }
 
     val fieryGradient = Brush.horizontalGradient(
         colors = listOf(

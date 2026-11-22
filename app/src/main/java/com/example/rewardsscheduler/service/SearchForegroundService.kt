@@ -4,14 +4,21 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import android.webkit.WebView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.example.rewardsscheduler.RewardsApp
@@ -52,6 +59,8 @@ class SearchForegroundService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var spikeBRunnable: Runnable? = null
     private var spikeCallCount = 0
@@ -71,7 +80,7 @@ class SearchForegroundService : Service() {
                 val flashDelaySec = intent.getIntExtra(EXTRA_FLASH_DELAY, 5)
                 val targetIds = intent.getStringArrayListExtra(EXTRA_PROFILE_IDS)?.toSet()
                 startForegroundNow("MS Rewards: Automated searches running...")
-                acquireWakeLock()
+                acquireLocks()
                 val allProfiles = app.accountRepository.profiles.value
                 val profilesToRun = if (!targetIds.isNullOrEmpty()) {
                     allProfiles.filter { targetIds.contains(it.id) }
@@ -90,7 +99,7 @@ class SearchForegroundService : Service() {
                     val isFlash = intent.getBooleanExtra(EXTRA_IS_FLASH, false)
                     val delaySec = intent.getIntExtra(EXTRA_FLASH_DELAY, 5)
                     startForegroundNow("MS Rewards: Profile search active...")
-                    acquireWakeLock()
+                    acquireLocks()
                     if (isFlash) {
                         app.searchEngine.startProfileFlash(profId, delaySec)
                     } else {
@@ -104,26 +113,26 @@ class SearchForegroundService : Service() {
             }
             ACTION_EXIT_GLOBAL -> {
                 app.searchEngine.exitGlobal()
-                releaseWakeLock()
+                releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
             ACTION_START_SPIKE_B -> {
                 val profileName = intent.getStringExtra(EXTRA_PROFILE_NAME) ?: "spike_bg_test"
                 startForegroundNow("SPIKE B — Background test running...")
-                acquireWakeLock()
+                acquireLocks()
                 startSpikeBTest(profileName)
             }
             ACTION_STOP -> {
                 stopSpikeBTest()
                 app.searchEngine.exitGlobal()
-                releaseWakeLock()
+                releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
             else -> {
                 startForegroundNow("Rewards search running...")
-                acquireWakeLock()
+                acquireLocks()
             }
         }
 
@@ -134,7 +143,7 @@ class SearchForegroundService : Service() {
 
     override fun onDestroy() {
         stopSpikeBTest()
-        releaseWakeLock()
+        releaseLocks()
         Log.i(TAG, "Service destroyed")
         super.onDestroy()
     }
@@ -238,9 +247,9 @@ class SearchForegroundService : Service() {
         nm.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    // ─── Wake Lock ───
+    // ─── Network & Wake Locks (Cellular, Wi-Fi & Ethernet) ───
 
-    private fun acquireWakeLock() {
+    private fun acquireLocks() {
         if (wakeLock == null) {
             val pm = getSystemService(PowerManager::class.java)
             wakeLock = pm.newWakeLock(
@@ -251,9 +260,54 @@ class SearchForegroundService : Service() {
             }
             Log.i(TAG, "WakeLock acquired")
         }
+
+        // Wi-Fi lock if Wi-Fi is available (safe across all devices)
+        if (wifiLock == null) {
+            try {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                wifiLock = wm?.createWifiLock(
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                    "RewardsScheduler::WifiLock"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+                Log.i(TAG, "WifiLock acquired")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not acquire WifiLock: ${e.message}")
+            }
+        }
+
+        // Active network maintainer: ensures Android OS keeps data routing active (Cellular / SIM, Wi-Fi, Ethernet)
+        if (networkCallback == null) {
+            try {
+                val cm = getSystemService(ConnectivityManager::class.java)
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                val cb = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        Log.i(TAG, "Active background internet network verified: $network")
+                    }
+                }
+                cm.registerNetworkCallback(request, cb)
+                networkCallback = cb
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not register NetworkCallback: ${e.message}")
+            }
+        }
+
+        // Keep WebView timers and execution active across background searching
+        mainHandler.post {
+            try {
+                (application as RewardsApp).webViewManager.resumeAll()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error resuming WebView timers: ${e.message}")
+            }
+        }
     }
 
-    private fun releaseWakeLock() {
+    private fun releaseLocks() {
         wakeLock?.let {
             if (it.isHeld) {
                 it.release()
@@ -261,5 +315,21 @@ class SearchForegroundService : Service() {
             }
         }
         wakeLock = null
+
+        wifiLock?.let {
+            if (it.isHeld) {
+                it.release()
+                Log.i(TAG, "WifiLock released")
+            }
+        }
+        wifiLock = null
+
+        networkCallback?.let { cb ->
+            try {
+                val cm = getSystemService(ConnectivityManager::class.java)
+                cm.unregisterNetworkCallback(cb)
+            } catch (_: Exception) {}
+        }
+        networkCallback = null
     }
 }

@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -23,6 +24,8 @@ import com.example.rewardsscheduler.RewardsApp
 import com.example.rewardsscheduler.data.AccountProfile
 import com.example.rewardsscheduler.service.SearchForegroundService
 import com.example.rewardsscheduler.theme.*
+import com.example.rewardsscheduler.update.AppUpdateManager
+import com.example.rewardsscheduler.update.UpdateManifest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -79,6 +82,20 @@ fun DashboardScreen(
     // Task 4: Focused profile ID
     var focusedProfileId by remember { mutableStateOf<String?>(null) }
     var backPressedTimestamp by remember { mutableLongStateOf(0L) }
+
+    // In-App OTA Update state
+    val updateManager = remember { AppUpdateManager(context) }
+    var availableUpdate by remember { mutableStateOf<UpdateManifest?>(null) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableFloatStateOf(0f) }
+
+    // Check for updates on screen launch
+    LaunchedEffect(Unit) {
+        val manifest = updateManager.checkForUpdate()
+        if (manifest != null) {
+            availableUpdate = manifest
+        }
+    }
 
     // Dialog states
     var signInProfile by remember { mutableStateOf<AccountProfile?>(null) }
@@ -436,6 +453,13 @@ fun DashboardScreen(
                                 val delayStr = if (minDelay != null && maxDelay != null) "${minDelay}s - ${maxDelay}s" else "Auto"
                                 app.searchEngine.addLog("[${prof.label}] Pacing delay set to $delayStr", "info")
                             }
+                        },
+                        onConfigureRunner = { profId, autoStop, maxCap, speed, variation, humanLike ->
+                            if (profId == "none" || profId.isBlank()) {
+                                app.searchEngine.configureAllRunners(autoStop, maxCap, speed, variation, humanLike)
+                            } else {
+                                app.searchEngine.configureProfileRunner(profId, autoStop, maxCap, speed, variation, humanLike)
+                            }
                         }
                     )
 
@@ -629,6 +653,82 @@ fun DashboardScreen(
                 }
             },
             containerColor = BgCard
+        )
+    }
+
+    // In-App OTA Update Dialog
+    availableUpdate?.let { manifest ->
+        AlertDialog(
+            onDismissRequest = { if (!isDownloadingUpdate) availableUpdate = null },
+            title = {
+                Text(
+                    text = "Update Available (v${manifest.versionName})",
+                    color = Accent,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = manifest.changelog.ifBlank { "A new version of MS Rewards Scheduler is available." },
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        text = "Your 20-30 logged-in profiles & all configurations are completely preserved during updates.",
+                        color = Color(0xFF69F0AE),
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                    )
+                    if (isDownloadingUpdate) {
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = Accent
+                        )
+                        Text(
+                            text = "${(downloadProgress * 100).toInt()}% downloaded",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (!isDownloadingUpdate) {
+                            isDownloadingUpdate = true
+                            coroutineScope.launch {
+                                val result = updateManager.downloadAndInstall(manifest) { progress ->
+                                    downloadProgress = progress
+                                }
+                                isDownloadingUpdate = false
+                                if (result.isFailure) {
+                                    Toast.makeText(context, "Update download failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    enabled = !isDownloadingUpdate,
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) {
+                    Text(if (isDownloadingUpdate) "Downloading..." else "Update Now", color = Color.White)
+                }
+            },
+            dismissButton = {
+                if (!isDownloadingUpdate) {
+                    TextButton(onClick = { availableUpdate = null }) {
+                        Text("Later", color = TextMuted)
+                    }
+                }
+            },
+            containerColor = BgElevated,
+            shape = RoundedCornerShape(12.dp)
         )
     }
 }

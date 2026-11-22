@@ -20,8 +20,8 @@ android {
         applicationId = "com.example.rewardsscheduler"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         // Backend config from local.properties
         buildConfigField("String", "BACKEND_URL", "\"${localProps.getProperty("backend.url", "")}\"")

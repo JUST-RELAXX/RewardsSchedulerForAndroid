@@ -205,6 +205,27 @@ class SearchRunner(
         onLog("[${profile.label}] Added custom desire: \"$query\" (next search)", "success")
     }
 
+    /**
+     * Clears cached plan and queue so preparePrompts() regenerates
+     * with the current globalTimeframeMinutes on the next call.
+     */
+    fun clearCachedPlan() {
+        cachedPlan = null
+        cachedQueue = null
+    }
+
+    // ── Profile-level overrides set from HolisticSettingsCard ──
+    /** Auto-stop: stop searching after this many minutes (0 = disabled). */
+    @Volatile var autoStopMinutes: Int = 0
+    /** Maximum searches cap (0 = no cap, use plan's totalSearches). */
+    @Volatile var maxSearchesCap: Int = 0
+    /** Typing speed in ms per character (0 = instant injection). */
+    @Volatile var typingSpeedMs: Int = 0
+    /** Add random variation to typing speed. */
+    @Volatile var typingRandomVariation: Boolean = false
+    /** Enable human-like typing simulation (pauses, backspace, etc.). */
+    @Volatile var typingHumanLike: Boolean = true
+
     @Volatile var isFlash: Boolean = false
         private set
     @Volatile var flashDelaySeconds: Int = 5
@@ -339,6 +360,11 @@ class SearchRunner(
         tracker.setInProgress(profile.id, true)
         accountRepository.setProfileInProgress(profile.id, true)
 
+        val sessionStartTime = System.currentTimeMillis()
+        withContext(Dispatchers.Main) {
+            webViewManager.resumeAll()
+        }
+
         val queryQueue = preparePrompts()
         val effectiveTimeframe = profile.timeframeMinutes ?: globalTimeframeMinutes
         val plan = cachedPlan ?: DelayGenerator.createPlan(
@@ -347,7 +373,7 @@ class SearchRunner(
             customMinDelay = profile.customMinDelay,
             customMaxDelay = profile.customMaxDelay,
             onAdjustment = { msg -> onLog("[${profile.label}] $msg", "warn") }
-        )
+        ).also { cachedPlan = it }
         val totalQueriesNeeded = plan.totalSearches
 
         onStatusChange(profile.id, "Searching")
@@ -360,11 +386,29 @@ class SearchRunner(
             }
             if (!isRunning) break
 
+            // 1. Auto-stop duration check
+            if (autoStopMinutes > 0) {
+                val elapsedMins = (System.currentTimeMillis() - sessionStartTime) / (60 * 1000L)
+                if (elapsedMins >= autoStopMinutes) {
+                    onLog("[${profile.label}] Auto-stop duration (${autoStopMinutes}m) reached. Stopping.", "warn")
+                    break
+                }
+            }
+
+            // 2. Maximum searches cap check
+            if (maxSearchesCap > 0 && executedCount >= maxSearchesCap) {
+                onLog("[${profile.label}] Maximum searches cap ($maxSearchesCap) reached. Stopping.", "info")
+                break
+            }
+
             val query = queryQueue.getOrElse(i) { PromptQueue.FALLBACK_QUERIES.random() }
             val delaySeconds = if (this.isFlash) this.flashDelaySeconds else plan.allDelays.getOrElse(i) { Random.nextInt(10, 40) }
 
-            // Task 4.3: Up to 5 attempts per search, calling ensureSearchPage() before each.
-            // If JS eval fails (WebView not attached), always fall back to direct URL navigation.
+            // Ensure WebView timers are active before search
+            withContext(Dispatchers.Main) {
+                webViewManager.resumeAll()
+            }
+
             var searchSuccess = false
             var lastError = "unknown"
 
@@ -382,13 +426,20 @@ class SearchRunner(
                         // Direct navigation fallback — always works regardless of WebView attachment
                         val encoded = URLEncoder.encode(query, "UTF-8")
                         withContext(Dispatchers.Main) {
+                            webViewManager.resumeAll()
                             webViewManager.loadUrl(profile.id, "https://www.bing.com/search?q=$encoded")
                         }
-                        // Wait for page to load
-                        webViewManager.awaitPageFinished(profile.id, 10000L)
-                        searchSuccess = true
-                        onLog("[${profile.label}] Search attempt $attempt used direct URL fallback", "info")
-                        break
+                        // Wait for page to actually load
+                        val finished = webViewManager.awaitPageFinished(profile.id, 10000L)
+                        if (finished) {
+                            searchSuccess = true
+                            onLog("[${profile.label}] Search attempt $attempt used direct URL fallback", "info")
+                            break
+                        } else {
+                            lastError = "Page load timed out in background"
+                            onLog("[${profile.label}] Direct fallback attempt $attempt timed out. Retrying...", "warn")
+                            delay(1500)
+                        }
                     } else {
                         lastError = result
                         onLog("[${profile.label}] Search attempt $attempt/5 failed: $result. Retrying...", "warn")
@@ -402,6 +453,7 @@ class SearchRunner(
                     if (attempt >= 3) {
                         try {
                             withContext(Dispatchers.Main) {
+                                webViewManager.resumeAll()
                                 webViewManager.reload(profile.id)
                             }
                             webViewManager.awaitPageFinished(profile.id, 10000L)
@@ -416,11 +468,16 @@ class SearchRunner(
                 try {
                     val encoded = URLEncoder.encode(query, "UTF-8")
                     withContext(Dispatchers.Main) {
+                        webViewManager.resumeAll()
                         webViewManager.loadUrl(profile.id, "https://www.bing.com/search?q=$encoded")
                     }
-                    webViewManager.awaitPageFinished(profile.id, 10000L)
+                    val finished = webViewManager.awaitPageFinished(profile.id, 10000L)
                     searchSuccess = true
-                    onLog("[${profile.label}] Direct URL fallback succeeded for \"$query\"", "info")
+                    if (finished) {
+                        onLog("[${profile.label}] Direct URL fallback succeeded for \"$query\"", "info")
+                    } else {
+                        onLog("[${profile.label}] Direct URL fallback completed (timeout assumed delivered) for \"$query\"", "info")
+                    }
                 } catch (e: Exception) {
                     onLog("[${profile.label}] Even direct URL fallback failed: ${e.message}", "error")
                 }

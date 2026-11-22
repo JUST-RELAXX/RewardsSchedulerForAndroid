@@ -1,0 +1,6 @@
+{
+  "versionCode": 2,
+  "versionName": "1.1",
+  "apkUrl": "https://raw.githubusercontent.com/JUST-RELAXX/RewardsSchedulerForAndroid/main/app-debug.apk",
+  "changelog": "Fixed global timeframe pacing, guaranteed background searching on cellular & wifi, and enabled in-app OTA updates."
+}

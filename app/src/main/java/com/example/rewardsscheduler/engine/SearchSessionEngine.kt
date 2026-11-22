@@ -40,7 +40,16 @@ class SearchSessionEngine(
     var maxConcurrentProfiles: Int = Int.MAX_VALUE
 
     // Global timeframe minutes (default 30)
+    // Custom setter propagates to ALL existing runners and clears their cached plans
+    // so the new timeframe takes effect on the next search cycle.
     var globalTimeframeMinutes: Int = 30
+        set(value) {
+            field = value
+            runners.values.forEach { runner ->
+                runner.globalTimeframeMinutes = value
+                runner.clearCachedPlan()
+            }
+        }
 
     // Task 2: Session search counts (strictly per-profile searches executed in THIS session)
     // Starts at 0 for every profile when session starts, cleared on session exit.
@@ -290,6 +299,7 @@ class SearchSessionEngine(
                     if (!_isSessionRunning.value) return@async
 
                     val runner = runners[profile.id] ?: createRunner(profile).also { runners[profile.id] = it }
+                    runner.globalTimeframeMinutes = globalTimeframeMinutes
 
                     withContext(Dispatchers.Main) {
                         webViewManager.getOrCreateWebView(profile.id)
@@ -404,6 +414,7 @@ class SearchSessionEngine(
             runners[profileId] = newRunner
             newRunner
         }
+        runner.globalTimeframeMinutes = globalTimeframeMinutes
         _runningProfileIds.update { it + profileId }
         if (isFlash) {
             _flashProfileIds.update { it + profileId }
@@ -470,5 +481,44 @@ class SearchSessionEngine(
         }
         accountRepository.setProfileInProgress(profileId, false)
         addLog("Closed profile: $profileId", "warn")
+    }
+
+    /**
+     * Configure runtime limits and typing behaviors for an individual profile runner.
+     */
+    fun configureProfileRunner(
+        profileId: String,
+        autoStopMinutes: Int,
+        maxSearchesCap: Int,
+        typingSpeedMs: Int,
+        typingRandomVariation: Boolean,
+        typingHumanLike: Boolean
+    ) {
+        runners[profileId]?.let { runner ->
+            runner.autoStopMinutes = autoStopMinutes
+            runner.maxSearchesCap = maxSearchesCap
+            runner.typingSpeedMs = typingSpeedMs
+            runner.typingRandomVariation = typingRandomVariation
+            runner.typingHumanLike = typingHumanLike
+        }
+    }
+
+    /**
+     * Configure runtime limits and typing behaviors across all profile runners.
+     */
+    fun configureAllRunners(
+        autoStopMinutes: Int,
+        maxSearchesCap: Int,
+        typingSpeedMs: Int,
+        typingRandomVariation: Boolean,
+        typingHumanLike: Boolean
+    ) {
+        runners.values.forEach { runner ->
+            runner.autoStopMinutes = autoStopMinutes
+            runner.maxSearchesCap = maxSearchesCap
+            runner.typingSpeedMs = typingSpeedMs
+            runner.typingRandomVariation = typingRandomVariation
+            runner.typingHumanLike = typingHumanLike
+        }
     }
 }
