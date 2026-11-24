@@ -1,6 +1,6 @@
 {
   "versionCode": 3,
   "versionName": "1.2",
-  "apkUrl": "https://raw.githubusercontent.com/JUST-RELAXX/RewardsSchedulerForAndroid/main/app-debug.apk",
+  "apkUrl": "https://github.com/JUST-RELAXX/RewardsSchedulerForAndroid/releases/download/v1.2/app-debug.apk",
   "changelog": "Fixed background searching: searches now continue via direct HTTP when app is backgrounded. Fixed phantom progress counter bug."
 }
