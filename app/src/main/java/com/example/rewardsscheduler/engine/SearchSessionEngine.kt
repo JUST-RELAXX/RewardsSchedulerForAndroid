@@ -5,6 +5,7 @@ import com.example.rewardsscheduler.data.AccountRepository
 import com.example.rewardsscheduler.data.DailyTracker
 import com.example.rewardsscheduler.data.LogEntry
 import com.example.rewardsscheduler.data.LogLevel
+import com.example.rewardsscheduler.lifecycle.AppLifecycleObserver
 import com.example.rewardsscheduler.webview.WebViewManager
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +27,8 @@ class SearchSessionEngine(
     private val webViewManager: WebViewManager,
     private val tracker: DailyTracker,
     private val accountRepository: AccountRepository,
-    val backendClient: BackendClient = BackendClient()
+    val backendClient: BackendClient = BackendClient(),
+    val backgroundSearchClient: BackgroundSearchClient = BackgroundSearchClient()
 ) {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -200,6 +202,7 @@ class SearchSessionEngine(
         return SearchRunner(
             profile = profile,
             webViewManager = webViewManager,
+            backgroundSearchClient = backgroundSearchClient,
             tracker = tracker,
             accountRepository = accountRepository,
             backendClient = backendClient,
@@ -292,6 +295,15 @@ class SearchSessionEngine(
         }
 
         addLog("Starting global session with ${selectedProfiles.size} profiles", "info")
+
+        // Pre-cache cookies so background search works immediately if user switches away
+        try {
+            selectedProfiles.forEach { p ->
+                backgroundSearchClient.cacheCookiesForProfile(p.id)
+            }
+        } catch (e: Exception) {
+            addLog("Cookie caching warning: ${e.message}", "warn")
+        }
 
         globalSessionJob = scope.launch {
             val tasks = selectedProfiles.map { profile ->
@@ -408,6 +420,8 @@ class SearchSessionEngine(
 
         scope.launch(Dispatchers.Main) {
             webViewManager.getOrCreateWebView(profileId)
+            // Pre-cache cookies for background search fallback
+            backgroundSearchClient.cacheCookiesForProfile(profileId)
         }
         val runner = runners[profileId] ?: run {
             val newRunner = createRunner(prof)

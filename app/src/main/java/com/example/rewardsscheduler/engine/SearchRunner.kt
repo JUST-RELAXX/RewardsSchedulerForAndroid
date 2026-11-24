@@ -5,6 +5,7 @@ import android.os.Looper
 import com.example.rewardsscheduler.data.AccountProfile
 import com.example.rewardsscheduler.data.AccountRepository
 import com.example.rewardsscheduler.data.DailyTracker
+import com.example.rewardsscheduler.lifecycle.AppLifecycleObserver
 import com.example.rewardsscheduler.webview.WebViewManager
 import kotlinx.coroutines.*
 import java.net.URLEncoder
@@ -22,6 +23,7 @@ import kotlin.random.Random
 class SearchRunner(
     @Volatile var profile: AccountProfile,
     private val webViewManager: WebViewManager,
+    private val backgroundSearchClient: BackgroundSearchClient,
     private val tracker: DailyTracker,
     private val accountRepository: AccountRepository,
     private val backendClient: BackendClient,
@@ -409,8 +411,43 @@ class SearchRunner(
                 webViewManager.resumeAll()
             }
 
+            // ── HYBRID SEARCH: pick WebView (foreground) or OkHttp (background) ──
+            val isInBackground = !AppLifecycleObserver.isAppInForeground
             var searchSuccess = false
             var lastError = "unknown"
+
+            if (isInBackground && backgroundSearchClient.hasCookiesFor(profile.id)) {
+                // ═══ BACKGROUND MODE: Direct HTTP search via OkHttp ═══
+                // WebView's Chromium network stack is suspended when Activity is STOPPED.
+                // Use direct HTTP GET with cached cookies instead.
+                for (attempt in 1..3) {
+                    if (!isRunning) break
+                    try {
+                        val ok = backgroundSearchClient.performSearch(profile.id, query)
+                        if (ok) {
+                            searchSuccess = true
+                            if (attempt == 1) {
+                                // Silent success on first attempt — don't spam logs
+                            } else {
+                                onLog("[${profile.label}] Background search succeeded on attempt $attempt", "info")
+                            }
+                            break
+                        } else {
+                            lastError = "HTTP request failed"
+                            onLog("[${profile.label}] Background search attempt $attempt/3 failed", "warn")
+                            delay(2000)
+                        }
+                    } catch (e: Exception) {
+                        lastError = e.message ?: "Exception"
+                        onLog("[${profile.label}] Background search attempt $attempt/3 error: ${e.message}", "warn")
+                        delay(2000)
+                    }
+                }
+                if (!searchSuccess) {
+                    onLog("[${profile.label}] All background search attempts failed for \"$query\": $lastError", "error")
+                }
+            } else {
+                // ═══ FOREGROUND MODE: WebView-based JS search ═══
 
             for (attempt in 1..5) {
                 if (!isRunning) break
@@ -472,16 +509,20 @@ class SearchRunner(
                         webViewManager.loadUrl(profile.id, "https://www.bing.com/search?q=$encoded")
                     }
                     val finished = webViewManager.awaitPageFinished(profile.id, 10000L)
-                    searchSuccess = true
                     if (finished) {
+                        searchSuccess = true
                         onLog("[${profile.label}] Direct URL fallback succeeded for \"$query\"", "info")
                     } else {
-                        onLog("[${profile.label}] Direct URL fallback completed (timeout assumed delivered) for \"$query\"", "info")
+                        // DO NOT mark searchSuccess=true on timeout!
+                        // This was the phantom progress bug: page load timed out
+                        // (WebView suspended in background) but we counted it as success.
+                        onLog("[${profile.label}] Direct URL fallback timed out for \"$query\" — NOT counting as success", "warn")
                     }
                 } catch (e: Exception) {
                     onLog("[${profile.label}] Even direct URL fallback failed: ${e.message}", "error")
                 }
             }
+            } // end else (foreground WebView mode)
 
             if (searchSuccess) {
                 executedCount++

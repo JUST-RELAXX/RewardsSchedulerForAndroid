@@ -20,8 +20,8 @@ android {
         applicationId = "com.example.rewardsscheduler"
         minSdk = 28
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         // Backend config from local.properties
         buildConfigField("String", "BACKEND_URL", "\"${localProps.getProperty("backend.url", "")}\"")
@@ -64,6 +64,7 @@ dependencies {
   // Core Android dependencies
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
+  implementation(libs.androidx.lifecycle.process)
   implementation(libs.androidx.activity.compose)
 
   // Arch Components
